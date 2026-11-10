@@ -41,9 +41,16 @@ The plugin's query files are in the `cypher` folder at the plugin root, two fold
 ### 5. Reload the index
 
 1. Run the query `fulltext` with `analyzer` = the manifest's `fulltext_analyzer`, or `standard-no-stop-words` when the manifest has none. It fails: `index: unavailable — <reason>`, go to step 6.
-2. Build the export command from the manifest's `export.cmd`: replace `{ref}` with `"<commit>"` and `{out}` with `"<import>/kb-export.json"`, each in double quotes. Run it in the clone root as `cd "<clone>"; <export command>`, allowing up to 10 minutes. It fails: `index: unavailable — the export failed: <first error line>; the previous index is kept`, go to step 6.
-3. Run the query `load` with `kb`. It fails: `index: unavailable — the load was refused: <reason>; the previous index is kept`, go to step 6.
-4. The row's `sha` must equal `<commit>`; otherwise `index: unavailable — the export stamped <sha>, not <commit>`. When it matches: `index: loaded`, `docs` from the row.
+2. Build the export command from the manifest's `export.cmd`: replace `{ref}` with `"<commit>"` and `{out}` with `"<import>/kb-export.json.tmp"`, each in double quotes. Run it in the clone root as `cd "<clone>"; <export command>`, allowing up to 10 minutes. It exits non-zero: `index: unavailable — the export failed: <first error line>; the previous index is kept`, go to step 6. The load never reads a file the export is still writing: only a finished export becomes `kb-export.json`.
+3. Only after the export exited 0, replace the export file with it, in one line that runs unchanged in bash, zsh and PowerShell:
+
+   ```
+   rm "<import>/kb-export.json"; mv "<import>/kb-export.json.tmp" "<import>/kb-export.json"
+   ```
+
+   The `rm` reports an error when no previous export exists; ignore it. The file tools still find `<import>/kb-export.json.tmp` afterwards: `index: unavailable — the export could not be moved into place; the previous index is kept`, go to step 6.
+4. Run the query `load` with `kb`. It fails: `index: unavailable — the load was refused: <reason>; the previous index is kept`, go to step 6.
+5. The row's `sha` must equal `<commit>`; otherwise `index: unavailable — the export stamped <sha>, not <commit>`. When it matches: `index: loaded`, `docs` from the row.
 
 ### 6. Report
 

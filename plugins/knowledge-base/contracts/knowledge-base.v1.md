@@ -56,7 +56,7 @@ Every KB ships `kb-manifest.json` at its KB root. It is read from the read-only 
 - `export` (required): the team's export command.
   - `cmd`: the command line; it contains both placeholders.
   - `placeholders`: exactly `["{ref}", "{out}"]`.
-  - `{ref}` becomes the full commit SHA of `origin/<default_branch>` in the clone; `{out}` becomes the absolute path of the export file. Each value is substituted in double quotes.
+  - `{ref}` becomes the full commit SHA of `origin/<default_branch>` in the clone; `{out}` becomes the absolute path of a temporary file next to the export file; only after the command exits 0 is it renamed to the export file, so a load never reads a partial export. Each value is substituted in double quotes.
   - The command runs in the clone's repository root, in the team's own runtime.
 - `fulltext_analyzer` (optional): the Neo4j full-text analyzer for `kb_fulltext`, e.g. `german`. Absent means `standard-no-stop-words`.
 - `resources` (required): resource name → exactly one of

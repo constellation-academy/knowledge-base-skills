@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -135,7 +135,11 @@ const plain = (r: Run): string[][] => {
     .map((l) => l.split(", "));
 };
 
-const writeExport = (e: unknown) => writeFileSync(join(IMPORT, "kb-export.json"), typeof e === "string" ? e : JSON.stringify(e));
+const writeExport = (e: unknown) => {
+  const tmp = join(IMPORT, "kb-export.json.tmp");
+  writeFileSync(tmp, typeof e === "string" ? e : JSON.stringify(e));
+  renameSync(tmp, join(IMPORT, "kb-export.json"));
+};
 
 const load = async (e: unknown, kb = "t"): Promise<Run> => {
   writeExport(e);
