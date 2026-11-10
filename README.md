@@ -37,11 +37,13 @@ Install it next to your team's plugin. Then run `knowledge-base:setup-operator` 
 - a read-only clone at `~/.kb/<kb id>/repo`, with the Neo4j data and import folders next to it;
 - the Docker network `kb-<kb id>` and the container `neo4j-<kb id>` (`neo4j:2026.06.0` with APOC, ports on `127.0.0.1`, `--restart unless-stopped`);
 - the MCP server `kb-<kb id>` in the project's local scope: `mcp/neo4j-cypher@sha256:b252997d16d37633a5a1b30e21ac0bf368b1c64e5895e4005313c84d77a05310` with `--read-only`, on the network `kb-<kb id>`;
-- the project's `.claude/settings.local.json`: the env keys of the contract, a generated Neo4j password, a deny rule that keeps sessions from reading that file, and allow rules for the commands the skills run to read, query and index the KB, plus the one that opens the pull request (`gh api … pulls` or `az repos pr create`). The setup does not pre-allow the writer's git commands (worktree, commit, push); your own permission mode, rules and hooks decide whether they prompt.
+- the project's `.claude/settings.local.json`: the env keys of the contract, a generated Neo4j password, a deny rule that keeps sessions from reading that file, and allow rules for the commands the skills run to read, query and index the KB. The setup never reads the file itself: a script in a throwaway container merges its changes and prints no secret.
 
-It needs git, the Claude Code CLI and Docker. Without Docker it sets up the clone only: reads work from the files, exploring and answering need the index. An existing container or setting is reused; a container that lacks APOC or the import folder is recreated on the same data only after you confirm; the question names the image change, the ports and mounts kept, and the env keys carried over or dropped.
+It needs git, the Claude Code CLI and Docker. Without Docker it sets up the clone only and lists the settings to add by hand: reads work from the files, exploring and answering need the index. An existing container or setting is reused; a container that lacks APOC or the import folder is recreated on the same data only after you confirm; the question names the image change, the ports and mounts kept, and the env keys carried over or dropped.
 
-Accepted risk: the allow rules let a session write a query file into `~/.kb/<kb id>/import/queries/` and run it with `cypher-shell`, so any Cypher, APOC calls included, can run against the KB's own local store without a prompt. That store holds only the rebuildable index.
+Not pre-allowed, so they prompt unless your own permission mode, rules or hooks allow them: the KB's export command (once per reindex), `pr.pre_commit`, the writer's git commands (worktree, commit, push) and the pull request call (`gh api …`, `az repos pr create …`). Each of them could be widened into a prompt-free file read, file write or program run.
+
+Accepted risk: the allow rules let a session write a `.cypher` file into `~/.kb/<kb id>/import/queries/` and run it with `cypher-shell`, so any Cypher, APOC calls included, can run against the KB's own local store without a prompt; that store holds only the rebuildable index. The same `cypher-shell` rule admits further arguments, so an inserted `-a <host>` would send that store's Neo4j user and password to another host. The store listens on `127.0.0.1` only.
 
 ## Local Neo4j without Docker
 
