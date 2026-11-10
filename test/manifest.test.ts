@@ -79,6 +79,18 @@ describe("kb-manifest schema", () => {
     failsAt(manifest, "/article_types/decision/file_name", "pattern");
   });
 
+  test("an empty pr.pre_commit fails", () => {
+    const manifest = copy(github);
+    manifest.pr.pre_commit = "";
+    failsAt(manifest, "/pr/pre_commit", "minLength");
+  });
+
+  test("a manifest without pr.pre_commit validates", () => {
+    const manifest = copy(github);
+    delete manifest.pr.pre_commit;
+    expect(errorsOf(manifest)).toEqual([]);
+  });
+
   test.each(["url_or_email", "unicode_whitespace", "standard-no-stop-words"])("analyzer %s validates", (analyzer) => {
     expect(errorsOf({ ...copy(azure), fulltext_analyzer: analyzer })).toEqual([]);
   });

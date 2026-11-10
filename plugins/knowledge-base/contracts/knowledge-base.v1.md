@@ -79,6 +79,7 @@ Every KB ships `kb-manifest.json` at its KB root. It is read from the read-only 
   - `commit_pattern`: the commit subject, or `{"add": …, "update": …}` for separate patterns for a new and a changed document.
   - `title_pattern` (optional): the pull request title. Absent means the subject of the commit the writer made, rendered from the `commit_pattern` entry it used (`add` or `update` in the object form).
   - `template` (optional): the pull request description template.
+  - `pre_commit` (optional): a command the writer runs in the worktree root after all files are written and before the commit, e.g. the KB's lint. A non-zero exit stops the write: nothing is committed or pushed, the worktree and branch are removed, and the command's output is reported. It follows the same shell rules as every other command: no redirection and no environment-variable expansion on the line.
   - Placeholders in `branch_pattern`, `commit_pattern` and `title_pattern`: `{ticket}` the ticket id, `{slug}`, `{summary}` a short summary of the change. Any other text is literal. A writer that needs `{ticket}` and has none asks for it.
 - Placeholder values:
   - `{slug}`: the document's title in lower case and ASCII: `ä`, `ö`, `ü`, `ß` become `ae`, `oe`, `ue`, `ss`, other letters lose their diacritics, each run of remaining characters other than `a-z` and `0-9` becomes one hyphen, and no hyphen leads or trails.
@@ -156,8 +157,16 @@ The export command writes one JSON object to `{out}`:
 
 - A route the manifest's `skills` omits goes to the generic skill.
 - For `write` as a map, the article type selects the skill; a type without a key goes to `*`, and without `*` to the generic skill.
+- A read passes resource names through unchanged: a name the manifest's `resources` does not list still goes to the read skill, since a team skill may own aliases and sources outside the KB.
+- A read in a project without a KB (`KB_PATH` unset, or no manifest at `KB_PATH`) goes to the one installed skill named `<plugin>:kb-provider`; with none it reports that the project has no KB, and with several it asks which one. Write and answer need the KB and report that `knowledge-base:setup-operator` sets it up.
 - A team skill calls its generic skill and may add its own logic around it.
 - `content-provider` fetches resources and returns ranked material for a question; it never answers. `answer-engine` answers from that material, cites document paths, and says so when the KB is silent. `article-writer` writes from the type's template with its required frontmatter and opens the pull request: via `gh` on GitHub, via `az` on Azure DevOps when installed, otherwise it pushes the branch and returns the link to create the pull request.
+- `article-writer` inputs: `type`, `mode` (`create` or `update`), `title`, `content`, `path` (update), `ticket` (when a pattern needs it), values for required frontmatter keys, and these optional inputs for team writers:
+  - `frontmatter`: the document's complete frontmatter as an object, written as given; it must hold every key of `required_frontmatter`.
+  - `number`, `slug` (create only): explicit `{number}` (digits) and `{slug}` values instead of derived ones.
+  - `companion_changes`: a list of `{path, content}`: further files under the KB root, written in the same worktree and committed with the document. A path is relative to the KB root, never absolute, never with a `..` segment, and never the document itself.
+  - `commit_body`: one to three lines, appended to the commit message after a blank line.
+  - `pr_body`: the complete pull request description, replacing `pr.template` and the default.
 - `knowledge-base:update-operator` (fetch and index) is internal. `knowledge-base:setup-operator` sets up a KB once per project.
 - A request for a KB other than the project's is refused.
 

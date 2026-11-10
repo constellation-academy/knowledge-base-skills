@@ -9,7 +9,9 @@ Routes one request to exactly one of three routes, read, write or answer, and re
 
 ## 1. Find the KB
 
-1. Follow "Locate the KB" in `../update-operator/runtime.md`, relative to this skill's directory; if it stops, reply with its message and stop. It reads `KB_PATH` and the manifest from the read-only clone.
+1. Follow "Locate the KB" in `../update-operator/runtime.md`, relative to this skill's directory. It reads `KB_PATH` and the manifest from the read-only clone.
+   - It stops because `KB_PATH` is unset, or because `KB_PATH` or its `kb-manifest.json` does not exist: the project has **no KB**. Skip steps 2 and 3, pick the route (section 2), and continue at "No KB" in section 3.
+   - It stops for any other reason: reply with its message and stop.
 2. The manifest's `contract` is not `"1"`: reply `The knowledge base <kb> follows contract <contract>; this knowledge-base plugin implements contract 1. Install a plugin version for contract <contract>.` and stop. Route nothing.
 3. The request names a KB other than the manifest's `kb` (by id, project or repository): reply `This project can only reach the knowledge base <kb>.` and stop.
 
@@ -27,7 +29,9 @@ Routes one request to exactly one of three routes, read, write or answer, and re
 
 ## 3. Pick the skill
 
-Look up the route in the manifest's `skills`:
+**No KB**: the read route goes to the one skill in the session's skill list named `<plugin>:kb-provider` (any plugin): a team read skill may serve resources from other sources. None: reply `This project has no knowledge base. Run knowledge-base:setup-operator.` and stop. Several: ask one question naming them. Write and answer: reply `Writing to and answering from the knowledge base need the KB in this project. Run knowledge-base:setup-operator.` and stop.
+
+**With a KB**, look up the route in the manifest's `skills`:
 
 | Route | Manifest entry | Without the entry |
 |---|---|---|
@@ -42,9 +46,11 @@ Look up the route in the manifest's `skills`:
 
 | Route | Seat | Input to the skill |
 |---|---|---|
-| read | inline: invoke the skill with the Skill tool | `fetch: kb <resource names or paths>` for named content (names from the manifest's `resources`), else `explore: kb <the request>` |
+| read | inline: invoke the skill with the Skill tool | `fetch: kb <resource names or paths>` for named content, else `explore: kb <the request>` |
 | answer | one agent | the question, in the requester's words |
 | write | one agent | `type`, `mode` (`create` or `update`), `title`, the content as the requester stated it, `path` for an update, `ticket` when given |
+
+A read passes resource names through unchanged, also a name the manifest's `resources` does not list: the read skill owns aliases and sources outside the KB, and reports a name it does not know. The write input lists what a requester gives; team writers add the generic writer's further inputs (the contract's section "Routes").
 
 **One agent** means one Agent-tool call, in the foreground, whose prompt holds only: the skill to invoke, its input from the table, and "return the skill's result unchanged". When the Agent tool is not available because this run is itself a seat, invoke the skill inline instead: the current agent is the seat.
 

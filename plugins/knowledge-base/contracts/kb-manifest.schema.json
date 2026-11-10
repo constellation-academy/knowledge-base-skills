@@ -249,6 +249,11 @@
         },
         "template": {
           "$ref": "#/$defs/relativePath"
+        },
+        "pre_commit": {
+          "description": "Command run in the writer's worktree root after all files are written and before the commit; non-zero exit stops the write.",
+          "type": "string",
+          "minLength": 1
         }
       }
     }
