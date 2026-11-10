@@ -66,6 +66,8 @@ The contract's section "Routes" lists the same inputs for team writers.
 git -C "<clone>" worktree add -b "<branch>" "<worktree>" origin/<default>
 ```
 
+`git worktree add` creates `<kb folder>/worktrees` and `<worktree>` itself; run no separate `mkdir`, and run each command of this skill as its own call, since the commands are permitted one by one.
+
 From here on, the KB root is `<worktree>/<kb_root>` (`<worktree>` itself when `<kb_root>` is `.`). Every file is read and written there, never in `<clone>`.
 
 ### 3. Write the files
