@@ -60,6 +60,18 @@ describe.if(hasPython)("merge-settings.py", () => {
     expect(merge({ env: { NEO4J_PASSWORD: "__KB_PASSWORD__" } }).out).toBe("added env NEO4J_PASSWORD\npassword: placeholder\n");
   });
 
+  test("refuses an env or permission list of the wrong type before writing anything", () => {
+    for (const bad of [{ env: "x" }, { permissions: [] }, { permissions: { deny: "Read(x)" } }]) {
+      writeFileSync(settings(), JSON.stringify(bad));
+      const r = merge({ permissions: { deny: ["Read(/.claude/settings.local.json)"] } });
+      expect(r.code).toBe(2);
+      expect(r.out).toStartWith("error: ");
+      expect(r.out).toEndWith("; nothing changed\n");
+      expect(JSON.parse(readFileSync(settings(), "utf8"))).toEqual(bad);
+      expect(existsSync(fragment())).toBe(true);
+    }
+  });
+
   test("refuses invalid JSON and changes nothing", () => {
     writeFileSync(settings(), "{ not json");
     const r = merge({ env: { KB_PATH: "/x" } });

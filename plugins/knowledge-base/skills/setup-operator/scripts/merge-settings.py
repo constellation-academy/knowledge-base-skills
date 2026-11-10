@@ -28,12 +28,19 @@ def main(fragment_path, settings_path):
         if not isinstance(current, dict):
             fail("the settings file does not hold a JSON object")
 
+    if not isinstance(current.get("env", {}), dict):
+        fail("env in the settings file is not an object")
+    permissions_now = current.get("permissions", {})
+    if not isinstance(permissions_now, dict):
+        fail("permissions in the settings file is not an object")
+    for name in LISTS:
+        if not isinstance(permissions_now.get(name, []), list):
+            fail(f"permissions.{name} in the settings file is not a list")
+
     lines = []
     wanted_env = fragment.get("env", {})
     if wanted_env:
         env = current.setdefault("env", {})
-        if not isinstance(env, dict):
-            fail("env in the settings file is not an object")
         for key, value in wanted_env.items():
             if key not in env:
                 env[key] = value
@@ -48,8 +55,6 @@ def main(fragment_path, settings_path):
     wanted_permissions = fragment.get("permissions", {})
     if wanted_permissions:
         permissions = current.setdefault("permissions", {})
-        if not isinstance(permissions, dict):
-            fail("permissions in the settings file is not an object")
         for name in LISTS:
             for entry in wanted_permissions.get(name, []):
                 existing = permissions.setdefault(name, [])
