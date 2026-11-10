@@ -1,0 +1,50 @@
+{
+  "kb": "example-github",
+  "contract": "1",
+  "default_branch": "main",
+  "kb_root": ".",
+  "export": {
+    "cmd": "node tools/export.mjs --ref {ref} --out {out}",
+    "placeholders": ["{ref}", "{out}"]
+  },
+  "resources": {
+    "glossary": { "file": "terms.md" },
+    "decisions": { "type": ["architecture-decision", "product-decision"] },
+    "catalog": { "file": "contents.md" },
+    "handbook": { "folder": "handbook/" }
+  },
+  "article_types": {
+    "architecture-decision": {
+      "folder": "decisions/architecture/",
+      "template": "blueprints/architecture-decision.md",
+      "required_frontmatter": ["type", "title", "description", "tags", "decision_state", "decided_on"],
+      "file_name": "AD-{number}-{slug}.md"
+    },
+    "product-decision": {
+      "folder": "decisions/product/",
+      "template": "blueprints/product-decision.md",
+      "required_frontmatter": ["type", "title", "description", "tags", "decision_state", "decided_on"],
+      "file_name": "PD-{number}-{slug}.md"
+    },
+    "guide": {
+      "folder": "guides/",
+      "template": "blueprints/article.md",
+      "required_frontmatter": ["type", "title", "description", "tags"]
+    }
+  },
+  "skills": {
+    "read": "example-team:kb-provider",
+    "write": {
+      "architecture-decision": "example-team:architecture-decision-writer",
+      "product-decision": "example-team:product-decision-writer",
+      "*": "example-team:kb-article-writer"
+    },
+    "answer": "example-team:kb-answer-engine"
+  },
+  "pr": {
+    "host": "github",
+    "branch_pattern": "docs/{slug}",
+    "commit_pattern": "docs: {summary}",
+    "template": "blueprints/pull-request.md"
+  }
+}

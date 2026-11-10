@@ -1,0 +1,48 @@
+{
+  "kb": "example-azure",
+  "contract": "1",
+  "default_branch": "trunk",
+  "kb_root": "knowledge",
+  "export": {
+    "cmd": "python -I tools/export_kb.py --ref {ref} --out {out}",
+    "placeholders": ["{ref}", "{out}"]
+  },
+  "fulltext_analyzer": "german",
+  "resources": {
+    "glossary": { "file": "begriffe.md" },
+    "decisions": { "type": ["decision"] },
+    "catalog": { "file": "uebersicht.md" },
+    "pitfalls": { "type": ["pitfall"] }
+  },
+  "article_types": {
+    "decision": {
+      "folder": "entscheidungen/",
+      "template": "vorlagen/entscheidung.md",
+      "required_frontmatter": ["type", "title", "description", "tags"],
+      "file_name": "{number}-{slug}.md"
+    },
+    "pitfall": {
+      "folder": "stolpersteine/",
+      "template": "vorlagen/artikel.md",
+      "required_frontmatter": ["type", "title", "description", "tags"]
+    },
+    "howto": {
+      "folder": "anleitungen/",
+      "template": "vorlagen/artikel.md",
+      "required_frontmatter": ["type", "title", "description", "tags"]
+    }
+  },
+  "skills": {
+    "read": "example-team:kb-provider",
+    "write": "example-team:kb-article-writer"
+  },
+  "pr": {
+    "host": "azure-devops",
+    "branch_pattern": "kb/{ticket}-{slug}",
+    "commit_pattern": {
+      "add": "kb: add {slug} ({ticket})",
+      "update": "kb: update {slug} ({ticket})"
+    },
+    "title_pattern": "{ticket} {summary}"
+  }
+}

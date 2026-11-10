@@ -1,0 +1,11 @@
+{
+  "name": "knowledge-base-skills",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0"
+  }
+}

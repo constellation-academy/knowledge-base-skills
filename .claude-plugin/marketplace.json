@@ -1,0 +1,17 @@
+{
+  "name": "knowledge-base-skills",
+  "owner": {
+    "name": "Constellation Academy"
+  },
+  "metadata": {
+    "description": "Agent skills for git-backed team knowledge bases with a local Neo4j index",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "knowledge-base",
+      "source": "./plugins/knowledge-base",
+      "description": "Read, write and answer from a team knowledge base through one entry point, on a per-KB local Neo4j"
+    }
+  ]
+}

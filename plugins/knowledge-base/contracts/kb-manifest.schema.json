@@ -1,0 +1,286 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "kb-manifest.json",
+  "description": "Manifest of one knowledge base, contract version 1 (knowledge-base.v1.md).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kb",
+    "contract",
+    "default_branch",
+    "kb_root",
+    "export",
+    "resources",
+    "article_types",
+    "pr"
+  ],
+  "properties": {
+    "kb": {
+      "description": "KB id; names the container, network, MCP server and local folder.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "contract": {
+      "description": "Contract major version.",
+      "const": "1"
+    },
+    "default_branch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "kb_root": {
+      "description": "KB root relative to the repository root; '.' for the whole repository.",
+      "$ref": "#/$defs/relativePath"
+    },
+    "export": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cmd",
+        "placeholders"
+      ],
+      "properties": {
+        "cmd": {
+          "type": "string",
+          "allOf": [
+            {
+              "type": "string",
+              "pattern": "\\{ref\\}"
+            },
+            {
+              "type": "string",
+              "pattern": "\\{out\\}"
+            }
+          ]
+        },
+        "placeholders": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "{ref}",
+              "{out}"
+            ]
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true
+        }
+      }
+    },
+    "fulltext_analyzer": {
+      "description": "Neo4j full-text analyzer for kb_fulltext; absent means standard-no-stop-words.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "resources": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "file"
+            ],
+            "properties": {
+              "file": {
+                "$ref": "#/$defs/relativePath"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/name"
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "folder"
+            ],
+            "properties": {
+              "folder": {
+                "$ref": "#/$defs/folderPath"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "article_types": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "folder",
+          "template",
+          "required_frontmatter"
+        ],
+        "properties": {
+          "folder": {
+            "$ref": "#/$defs/folderPath"
+          },
+          "template": {
+            "$ref": "#/$defs/relativePath"
+          },
+          "required_frontmatter": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
+          "file_name": {
+            "description": "File name with the placeholders {number} and {slug}; absent means {slug}.md.",
+            "type": "string",
+            "pattern": "^([^{}/\\\\]|\\{number\\}|\\{slug\\})+\\.md$"
+          }
+        }
+      }
+    },
+    "skills": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "read": {
+          "$ref": "#/$defs/skill"
+        },
+        "write": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/skill"
+            },
+            {
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": {
+                "type": "string",
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/name"
+                  },
+                  {
+                    "const": "*"
+                  }
+                ]
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/skill"
+              }
+            }
+          ]
+        },
+        "answer": {
+          "$ref": "#/$defs/skill"
+        }
+      }
+    },
+    "pr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host",
+        "branch_pattern",
+        "commit_pattern"
+      ],
+      "properties": {
+        "host": {
+          "enum": [
+            "github",
+            "azure-devops"
+          ]
+        },
+        "branch_pattern": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit_pattern": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "add",
+                "update"
+              ],
+              "properties": {
+                "add": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "update": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          ]
+        },
+        "title_pattern": {
+          "type": "string",
+          "minLength": 1
+        },
+        "template": {
+          "$ref": "#/$defs/relativePath"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "skill": {
+      "description": "Plugin-qualified skill name.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "type": "string",
+        "pattern": "^(/|[A-Za-z]:)|\\\\|(^|/)\\.\\.(/|$)"
+      }
+    },
+    "folderPath": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/relativePath"
+        },
+        {
+          "type": "string",
+          "pattern": "/$"
+        }
+      ]
+    }
+  }
+}
