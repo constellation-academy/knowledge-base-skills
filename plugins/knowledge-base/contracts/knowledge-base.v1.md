@@ -115,11 +115,12 @@ The export command writes one JSON object to `{out}`:
 - `refs` and `supersedes` exist only as relationships; an entry whose target is not a document of the export yields no relationship.
 - `(:KBIndex {kb, sha, docs})`: `kb` the loaded KB id (string), `sha` the commit it was exported at (string), `docs` the number of documents (integer).
 - Full-text index `kb_fulltext` on `Doc.title` and `Doc.body`, with the manifest's analyzer.
+- Uniqueness: one `Doc` per `kb` and `path`, one `KBIndex` per `kb`, enforced by constraints, so two loads at once cannot duplicate the graph.
 
 ## Loading
 
 - The plugin's load script reads the export file through APOC (`apoc.load.json`) and runs entirely in `cypher-shell`.
-- The full-text index is created first, in its own step (`IF NOT EXISTS`), never inside the load transaction.
+- The full-text index and the uniqueness constraints are created first, in their own step (`IF NOT EXISTS`), never inside the load transaction.
 - One transaction wipes the KB's graph, loads the export, creates the relationships and stamps `KBIndex`. A failed load keeps the old graph.
 - The load refuses, and changes nothing, when the store holds another KB, when it holds documents without a `KBIndex` stamp or without `kb`, when the export names another KB, or when the export has no documents.
 

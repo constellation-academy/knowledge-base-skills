@@ -66,7 +66,7 @@ Index available:
    - Otherwise, or if that call fails: run the query `search` with the same parameters.
    - No hits: run it once more with only the question's content words (no question words, articles or punctuation). Still none: the material is empty.
 2. **Links.** For the top 5 hits:
-   - With the MCP server: one read query through it, parameters `kb` and `paths` (the hit paths):
+   - With the MCP server: one read query through it (the store guard already ran in the search step, which every hit comes from), parameters `kb` and `paths` (the hit paths):
 
      ```
      MATCH (d:Doc {kb: $kb}) WHERE d.path IN $paths
@@ -85,14 +85,14 @@ Index available:
 KB <kb> at <first 7 characters of commit>; explore via <MCP kb-<kb> | fixed queries>
 
 ## explore: <question>
-1. <path> — <title> (<type>, <status>), score <score>
+1. <path> — <title>[ (<type>, <status>)], score <score>
    excerpt: <excerpt>
    links out: <paths>; links in: <paths>
    supersedes: <paths>; superseded by: <paths>
 2. …
 ```
 
-Leave out a line whose lists are all empty. Empty material: `No documents match.` under the heading. The caller fetches full texts with `fetch: kb <paths>`.
+Type and status come from the links step, so only the top 5 hits carry them. Leave out a line whose lists are all empty. Empty material: `No documents match.` under the heading. The caller fetches full texts with `fetch: kb <paths>`.
 
 ## Common mistakes
 

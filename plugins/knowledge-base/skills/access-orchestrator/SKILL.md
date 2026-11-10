@@ -37,7 +37,6 @@ Look up the route in the manifest's `skills`:
 
 - A `write` map: determine the article type (a key of `article_types`) from the request; the type's key in the map, else `*`, else the generic writer. The type is unclear and the map has a key other than `*`: ask one question naming the types.
 - The named skill is not in the session's skill list: reply `The knowledge base <kb> routes <route> to <skill>, which is not installed. Install the plugin <plugin part of the name>.` and stop. Never swap in the generic skill for a team skill the manifest names.
-- The caller is the very skill the entry names (a team skill calling back): use the generic skill, so the route never loops.
 
 ## 4. Run the route
 

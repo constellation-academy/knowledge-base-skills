@@ -431,6 +431,26 @@ describe("guards", () => {
   });
 });
 
+describe("concurrency", () => {
+  test("two parallel loads on an empty store leave no duplicates", async () => {
+    writeExport(sample());
+    const [a, b] = await Promise.all([query("load", { kb: "t" }), query("load", { kb: "t" })]);
+    expect([a.code, b.code]).toContain(0);
+    const counts = plain(
+      await cypher(
+        "MATCH (d:Doc) WITH d.kb AS kb, d.path AS path, count(*) AS c WHERE c > 1 RETURN count(*) AS dupDocs UNION ALL MATCH (i:KBIndex) RETURN count(i) - 1 AS dupDocs;",
+      ),
+    );
+    expect(counts).toEqual([["0"], ["0"]]);
+    expect(rows(await query("status", { kb: "t" }))).toEqual([{ kb: "t", sha: "abc123", docs: 5 }]);
+  });
+
+  test("fulltext creates the uniqueness constraints", async () => {
+    const r = plain(await cypher("SHOW CONSTRAINTS YIELD name RETURN name ORDER BY name;"));
+    expect(r.flat().map((n) => n.replace(/"/g, ""))).toEqual(expect.arrayContaining(["kb_doc_unique", "kb_index_unique"]));
+  });
+});
+
 describe("hostile strings", () => {
   test("round-trips through export, toJson and -P literals", async () => {
     const hostile = [

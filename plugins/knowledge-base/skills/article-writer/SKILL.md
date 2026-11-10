@@ -34,6 +34,7 @@ Mechanics (locating the KB, shell rules, the names `<kb>`, `<default>`, `<clone>
    - Pull request title: `pr.title_pattern`, or the commit subject when absent.
 5. Settle every frontmatter value now, from the clone (read only): for `create`, read the `template` file at `<KB root>/<template>` and give every key of `required_frontmatter` a value: `type` is the article type, `title` the title, a key the requester gave a value for takes that value, and a key that only describes the document's own content (such as a description or tags) is derived from `content`. Any other key without a value is a missing input. For `update`, the same holds for a required key the document lacks.
 6. `git -C "<clone>" ls-remote --heads origin "<branch>"` prints a line: the branch already exists on the remote. Return `branch <branch> already exists on origin` and stop; never reuse or overwrite it.
+7. `git -C "<clone>" rev-parse --verify --quiet "refs/heads/<branch>"` succeeds, or `<worktree>` (step 2) exists: an earlier run left this branch or worktree behind after a failed push. Return `an earlier run left <branch> in <worktree>; push it or remove it, then run again` and stop; never delete it unasked.
 
 ### 2. Worktree
 
@@ -76,7 +77,7 @@ From here on, the KB root is `<worktree>/<kb_root>` (the manifest's `kb_root`; `
 gh api --hostname <host> --method POST repos/<owner>/<repo>/pulls --input "<worktree>/.kb-pull-request.json" --jq .html_url
 ```
 
-**azure-devops**: `<org>`, `<project>` and `<repo>` come from the remote URL (`https://dev.azure.com/<org>/<project>/_git/<repo>`, `https://<org>@dev.azure.com/<org>/<project>/_git/<repo>`, `git@ssh.dev.azure.com:v3/<org>/<project>/<repo>` or `https://<org>.visualstudio.com/<project>/_git/<repo>`), URL-decoded. Write the title to `<worktree>/.kb-pr-title` and the description to `<worktree>/.kb-pr-description`, then:
+**azure-devops**: `<org>`, `<project>` and `<repo>` come from the remote URL (`https://dev.azure.com/<org>/<project>/_git/<repo>`, `https://<org>@dev.azure.com/<org>/<project>/_git/<repo>`, `git@ssh.dev.azure.com:v3/<org>/<project>/<repo>` or `https://<org>.visualstudio.com/<project>/_git/<repo>`), URL-decoded for the command; the links below use them URL-encoded. A `<project>` or `<repo>` containing `'` skips `az` and goes to the fallback. Write the title to `<worktree>/.kb-pr-title` and the description to `<worktree>/.kb-pr-description`, then:
 
 ```
 az repos pr create --org https://dev.azure.com/<org> --project '<project>' --repository '<repo>' --source-branch '<branch>' --target-branch '<default>' --title '@<worktree>/.kb-pr-title' --description '@<worktree>/.kb-pr-description' --query pullRequestId --output tsv

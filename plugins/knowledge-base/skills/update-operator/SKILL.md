@@ -17,10 +17,11 @@ Follow "Locate the KB" in `runtime.md`. If it stops, return its message as the r
 
 ### 2. Fast-forward the clone
 
-1. `git -C "<clone>" symbolic-ref --short HEAD` must print `<default>`. Otherwise: `index: unavailable — the read-only clone is on branch <branch>, not <default>; run knowledge-base:setup-operator`, and go to step 6.
-2. `git -C "<clone>" fetch --quiet origin`. If it fails, the machine is offline or the remote unreachable: continue on the clone's current commit, and get its age with `git -C "<clone>" log -1 --format=%cr HEAD` for the report.
-3. `git -C "<clone>" merge --ff-only --quiet origin/<default>`. If it fails: `index: unavailable — the read-only clone cannot fast-forward to origin/<default>: <first error line>; run knowledge-base:setup-operator`, and go to step 6.
-4. `git -C "<clone>" rev-parse HEAD` is `<commit>`.
+1. `git -C "<clone>" rev-parse HEAD` is `<commit>` for now.
+2. `git -C "<clone>" symbolic-ref --short HEAD` must print `<default>`. It prints another branch, or fails because HEAD is detached: `index: unavailable — the read-only clone is not on <default> (<branch, or "detached HEAD">), so its files may not match origin/<default>; run knowledge-base:setup-operator`, and go to step 6.
+3. `git -C "<clone>" fetch --quiet origin`. If it fails, the machine is offline or the remote unreachable: continue on the clone's current commit, and get its age with `git -C "<clone>" log -1 --format=%cr HEAD` for the report.
+4. `git -C "<clone>" merge --ff-only --quiet origin/<default>`. If it fails: `index: unavailable — the read-only clone cannot fast-forward to origin/<default>, so its files may not match it: <first error line>; run knowledge-base:setup-operator`, and go to step 6.
+5. `git -C "<clone>" rev-parse HEAD` is `<commit>`.
 
 ### 3. Refresh the query files
 
@@ -28,13 +29,14 @@ The plugin's query files are in the `cypher` folder at the plugin root, two fold
 
 1. `git diff --no-index --quiet "<plugin cypher>" "<queries>"`. Exit code 0: the copies are current, go to step 4.
 2. Any other exit code: copy every `.cypher` file of `<plugin cypher>` to `<queries>` under the same name, with the file tools (read each file, write it unchanged). Never edit a query file.
+3. Verify each copy: `git diff --no-index --quiet "<plugin cypher>/<name>.cypher" "<queries>/<name>.cypher"` for every file copied. Any exit code other than 0: `index: unavailable — the query file <name>.cypher could not be copied to <queries>`, and go to step 6 without running a query.
 
 ### 4. Compare the index
 
 1. Read `NEO4J_SHELL` and `NEO4J_DATABASE`. Either unset: `index: unavailable — no KB index is configured; run knowledge-base:setup-operator`, and go to step 6.
 2. Run the query `status` with `kb`. It fails: `index: unavailable — <reason>` (for a connection error add "Neo4j is not reachable"), and go to step 6.
-3. The row's `sha` equals `<commit>`: `index: current`, `docs` from the row; go to step 6.
-4. The row has `empty: true`, or another `sha`: go to step 5.
+3. Exactly one row, and its `sha` equals `<commit>`: `index: current`, `docs` from the row; go to step 6.
+4. More than one row, a row with `empty: true`, or another `sha`: go to step 5.
 
 ### 5. Reload the index
 

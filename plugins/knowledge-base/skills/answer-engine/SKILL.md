@@ -1,6 +1,6 @@
 ---
 name: answer-engine
-description: Use when a question must be answered from the project's knowledge base (KB), with the KB documents it rests on cited by path — "what does X mean", "what did we decide on X", "is there a rule for X". Engine: judges the KB's material and answers; changes nothing. Reached through knowledge-base:access-orchestrator or a KB's team answer skill.
+description: Use when a skill or seat already holds a question and needs it answered from the project's knowledge base (KB), with the KB documents the answer rests on cited by path. Engine: judges the KB's material and answers; changes nothing. Reached through knowledge-base:access-orchestrator or a KB's team answer skill, or called directly by any caller that supplies a question.
 ---
 
 # Answer from the KB

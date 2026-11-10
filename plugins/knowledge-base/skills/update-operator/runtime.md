@@ -17,7 +17,8 @@ Every command below runs unchanged in bash, zsh and PowerShell.
 1. Read `KB_PATH`. Unset: the project has no KB. Reply `This project has no knowledge base: KB_PATH is unset. Run knowledge-base:setup-operator.` and stop.
 2. Read `<KB_PATH>/kb-manifest.json` with the file tools. Missing or not valid JSON: reply `KB_PATH (<KB_PATH>) holds no valid kb-manifest.json. Run knowledge-base:setup-operator.` and stop.
 3. Run `git -C "<KB_PATH>" rev-parse --show-toplevel`. Its output is `<clone>`, the read-only clone's root. Its parent folder is `<kb folder>`.
-4. `<clone>` must be named `repo` and `<kb folder>` must be named after the manifest's `kb`, as the contract's local layout fixes. Otherwise reply `KB_PATH does not point into the read-only clone ~/.kb/<kb>/repo. Run knowledge-base:setup-operator.` and stop: a working checkout is never read or written.
+4. `<clone>` must be a folder named `repo` inside a folder named after the manifest's `kb`, as the contract's local layout fixes. Otherwise reply `KB_PATH is not inside a read-only clone at a folder <kb>/repo. Run knowledge-base:setup-operator.` and stop: a working checkout is never read or written.
+5. `git -C "<KB_PATH>" rev-parse --show-prefix` must print the manifest's `kb_root` followed by `/`, or nothing when `kb_root` is `.`. Otherwise reply `KB_PATH is not the KB root <kb_root> of the clone <clone>. Run knowledge-base:setup-operator.` and stop.
 
 Names used by the skills:
 
