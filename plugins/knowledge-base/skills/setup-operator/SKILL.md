@@ -41,7 +41,7 @@ The layout, the env keys and the isolation rules are in the contract, `contracts
 
 ## Merge into the settings
 
-Write `<fragment>` with the file tools: a JSON object with the `env` keys and the `permissions` lists (`allow`, `deny`) to add. Create `<project>/.claude` if it is missing (Commands per OS), so Docker does not create it as another user. Then run, unchanged:
+Write `<fragment>` with the file tools: a JSON object with the `env` keys and the `permissions` lists (`allow`, `deny`) to add. Create `<project>/.claude` if it is missing (Commands per OS), so Docker does not create it as another user; `.claude` is a protected path, so this one command always asks the developer, and a headless session cannot run it. Then run, unchanged:
 
 ```
 docker run --rm -v "<scripts>:/s:ro" -v "<home>/.kb:/f" -v "<project>/.claude:/w" --entrypoint python <mcp image> /s/merge-settings.py /f/setup-fragment.json /w/settings.local.json
