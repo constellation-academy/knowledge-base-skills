@@ -128,7 +128,8 @@ The export command writes one JSON object to `{out}`:
 - Fixed queries live as `.cypher` files in the plugin. `update-operator` copies them to the query folder, so no command names the plugin's versioned install path.
 - A query runs as `<NEO4J_SHELL> -d <NEO4J_DATABASE> --format plain -f <query file> -P '<name> => <literal>'`. The query file is `/import/queries/<name>.cypher` with Docker and the host's query-file path with a local Neo4j. No shell redirection: PowerShell has no `<`.
 - Values reach Cypher only as `-P` parameters, never spliced into query text.
-- A `-P` literal is a double-quoted Cypher string: `\` becomes `\\`, and `"`, `'` and every character outside printable ASCII become `\uXXXX`, so no raw quote or non-ASCII character reaches the command line. `null` and numbers are bare.
+- A `-P` literal is a double-quoted Cypher string: `\` becomes `\\`, and `"`, `'` and every character outside printable ASCII become `\uXXXX`, so no raw quote or non-ASCII character reaches the command line; a character above U+FFFF becomes its two UTF-16 surrogate escapes. `null` and numbers are bare.
+- `search` takes plain text and escapes it itself for the full-text parser; callers never escape Lucene syntax.
 - Every query filters by and checks the KB id.
 - Every query returns one column `json`, one JSON object per row (`apoc.convert.toJson`).
 - No fixed query returns a document's `body`; document text always comes from the clone's files. `search` returns only a short excerpt of at most 200 characters of the body next to path, title and score.

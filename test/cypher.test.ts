@@ -13,6 +13,8 @@ const CYPHER_DIR = join(import.meta.dir, "../plugins/knowledge-base/cypher");
 const IMPORT = mkdtempSync(join(tmpdir(), "kbtest-import-"));
 const REAL_REPO = process.env.KB_TEST_REAL_REPO;
 const CLONE_DIR = mkdtempSync(join(tmpdir(), "kbtest-clone-"));
+const MARKER_DIR = mkdtempSync(join(tmpdir(), "kbtest-marker-"));
+const MARKER = join(MARKER_DIR, "kb-pwned");
 
 type Doc = {
   path: string;
@@ -181,6 +183,7 @@ afterAll(() => {
   Bun.spawnSync(["docker", "rm", "-f", CONTAINER]);
   rmSync(IMPORT, { recursive: true, force: true });
   rmSync(CLONE_DIR, { recursive: true, force: true });
+  rmSync(MARKER_DIR, { recursive: true, force: true });
 });
 
 beforeEach(async () => {
@@ -303,6 +306,9 @@ describe("search", () => {
     expect(rows(await query("search", { kb: "t", query: "a/b", limit: 5 })).map((x) => x.path)).toContain("cpp.md");
     expect(rows(await query("search", { kb: "t", query: "zebrafish OR", limit: 5 })).map((x) => x.path)).toEqual(["adr/ADR-0001-x.md"]);
     expect(rows(await query("search", { kb: "t", query: "", limit: 5 }))).toEqual([]);
+    for (const q of ["zebrafish\u3000OR", "zebrafish\u00a0AND", "zebrafish\u2003NOT"]) {
+      expect(rows(await query("search", { kb: "t", query: q, limit: 5 })).map((x) => x.path)).toContain("adr/ADR-0001-x.md");
+    }
   });
 
   test("limits the number of hits and cuts the excerpt", async () => {
@@ -472,7 +478,7 @@ describe("hostile strings", () => {
     const hostile = [
       `q"uote 'single' back\\slash trailing\\`,
       "line1\nline2\r\n\ttab, comma",
-      "x; echo PWNED $(echo PWNED) `echo PWNED` && rm -rf / # |",
+      `$(touch ${MARKER}) ; touch ${MARKER} && touch ${MARKER} # | \`touch ${MARKER}\``,
       "MATCH (n) DETACH DELETE n; RETURN 1 //",
       "Äpfel Öl Übung ß émoji 😀 \u2028 end",
       "1 + 1",
@@ -486,10 +492,10 @@ describe("hostile strings", () => {
       docs: hostile.map((h) => doc({ path: `s/${h}.md`, type: "adr", title: h, body: h })),
     };
     rows(await load(e));
+    expect(existsSync(MARKER)).toBe(false);
     for (const sh of ["bash", "zsh"]) {
       for (const d of e.docs) {
         const r = await queryVia(sh, "doc", { kb: "t", path: d.path });
-        expect(r.stdout).not.toContain("PWNED\n");
         expect(rows(r)).toEqual([asDoc(d)]);
       }
       const l = await queryVia(sh, "list", { kb: "t", type: "adr" });
@@ -497,6 +503,7 @@ describe("hostile strings", () => {
       const s = await queryVia(sh, "search", { kb: "t", query: "Äpfel", limit: 5 });
       expect(rows(s).map((x) => x.title)).toEqual([hostile[4]]);
     }
+    expect(existsSync(MARKER)).toBe(false);
     expect(plain(await cypher("MATCH (n) RETURN count(n) AS c;"))).toEqual([[String(hostile.length + 1)]]);
   });
 });
