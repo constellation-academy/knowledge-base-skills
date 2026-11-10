@@ -20,6 +20,7 @@ This contract binds every knowledge base (KB) that uses the `knowledge-base` plu
 | Import folder | `~/.kb/<kb id>/import`, mounted at `/import` in the container |
 | Query files | `~/.kb/<kb id>/import/queries/<name>.cypher` |
 | Export file | `~/.kb/<kb id>/import/kb-export.json` |
+| Neo4j settings | `~/.kb/<kb id>/neo4j.env`: APOC, file import and the import folder, passed with `--env-file`; no credentials |
 | Neo4j container | `neo4j-<kb id>` |
 | Docker network | `kb-<kb id>` |
 | MCP server | `kb-<kb id>` |

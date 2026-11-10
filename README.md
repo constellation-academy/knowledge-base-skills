@@ -15,6 +15,7 @@ Claude Code marketplace with one plugin, `knowledge-base`: agent skills that rea
 | `article-writer` | write: creates or updates a document as a pull request from a worktree |
 | `answer-engine` | answer: answers a question from the KB with document paths as sources |
 | `update-operator` | internal: fast-forwards the read-only clone and reloads the index before a read or write |
+| `setup-operator` | one-time setup per project: read-only clone, Neo4j and MCP server in Docker, project settings |
 
 Without Docker or Neo4j, reads work from the read-only clone; exploring and answering need the KB index.
 
@@ -28,6 +29,17 @@ In Claude Code:
 ```
 
 Install it next to your team's plugin. Then run `knowledge-base:setup-operator` once in the project that uses the KB.
+
+## Setup
+
+`knowledge-base:setup-operator` asks for the URL of the repository that contains the KB and sets up, for that KB id:
+
+- a read-only clone at `~/.kb/<kb id>/repo`, with the Neo4j data and import folders next to it;
+- the Docker network `kb-<kb id>` and the container `neo4j-<kb id>` (`neo4j:2026.06.0` with APOC, ports on `127.0.0.1`, `--restart unless-stopped`);
+- the MCP server `kb-<kb id>` in the project's local scope: `mcp/neo4j-cypher@sha256:b252997d16d37633a5a1b30e21ac0bf368b1c64e5895e4005313c84d77a05310` with `--read-only`, on the network `kb-<kb id>`;
+- the project's `.claude/settings.local.json`: the env keys of the contract, a generated Neo4j password, and allow rules for the commands the skills run to read and index. The writer's commit, push and pull request commands are not pre-allowed; you confirm them when a write runs.
+
+It needs git, the Claude Code CLI and Docker. Without Docker it sets up the clone only: reads work from the files, exploring and answering need the index. An existing container or setting is reused; a container that lacks APOC or the import folder is recreated on the same data only after you confirm.
 
 ## Local Neo4j without Docker
 

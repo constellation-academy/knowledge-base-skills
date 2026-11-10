@@ -9,7 +9,7 @@ Routes one request to exactly one of three routes, read, write or answer, and re
 
 ## 1. Find the KB
 
-1. Follow "Locate the KB" in `../update-operator/runtime.md`, relative to this skill's directory. It reads `KB_PATH` and the manifest from the read-only clone.
+1. Follow "Locate the KB" in `../update-operator/runtime.md`, relative to this skill's directory. It reads `KB_PATH` with `printenv KB_PATH` alone, never from the project's settings files, which hold the Neo4j password, and the manifest from the read-only clone.
    - It stops because `KB_PATH` is unset, or because `KB_PATH` or its `kb-manifest.json` does not exist: the project has **no KB**. Skip steps 2 and 3, pick the route (section 2), and continue at "No KB" in section 3.
    - It stops for any other reason: reply with its message and stop.
 2. The manifest's `contract` is not `"1"`: reply `The knowledge base <kb> follows contract <contract>; this knowledge-base plugin implements contract 1. Install a plugin version for contract <contract>.` and stop. Route nothing.

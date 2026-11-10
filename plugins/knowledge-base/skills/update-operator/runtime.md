@@ -8,13 +8,14 @@ Every command below runs unchanged in bash, zsh and PowerShell.
 
 - An environment value is read first, with its own command, and then written into the next command as literal text: `printenv <KEY>` in bash or zsh, `[Environment]::GetEnvironmentVariable('<KEY>')` in PowerShell. Empty output means unset. A command line never contains `$<KEY>`, `$env:<KEY>` or `%<KEY>%`.
 - Read only `KB_PATH`, `NEO4J_SHELL` and `NEO4J_DATABASE`. `NEO4J_USERNAME` and `NEO4J_PASSWORD` are never read, printed or written into a command; `NEO4J_SHELL` passes them on by name.
+- Never open, `cat` or search the project's `.claude/settings.local.json` or `.claude/settings.json` to find a value: they hold the Neo4j password. Values come only from the environment, as above.
 - No `<` or `>` redirection, no pipes, no `&&`. Two steps in one line are separated by `;`.
 - Paths are absolute and in double quotes.
 - Free text (commit messages, titles, pull request bodies) never goes on a command line: write it to a file with the file tools and pass the file. The one exception is a query parameter, which goes on the line only as a `-P` literal.
 
 ## Locate the KB
 
-1. Read `KB_PATH`. Unset: the project has no KB. Reply `This project has no knowledge base: KB_PATH is unset. Run knowledge-base:setup-operator.` and stop.
+1. Read `KB_PATH`: run `printenv KB_PATH` (PowerShell: `[Environment]::GetEnvironmentVariable('KB_PATH')`) as a command of its own, combined with nothing. Never look for it in the project's settings files. Unset: the project has no KB. Reply `This project has no knowledge base: KB_PATH is unset. Run knowledge-base:setup-operator.` and stop.
 2. Read `<KB_PATH>/kb-manifest.json` with the file tools. Missing or not valid JSON: reply `KB_PATH (<KB_PATH>) holds no valid kb-manifest.json. Run knowledge-base:setup-operator.` and stop.
 3. Run `git -C "<KB_PATH>" rev-parse --show-toplevel`. Its output is `<clone>`, the read-only clone's root. Its parent folder is `<kb folder>`. It fails: reply `KB_PATH (<KB_PATH>) is not inside a git repository. Run knowledge-base:setup-operator.` and stop.
 4. `<clone>` must be a folder named `repo` inside a folder named after the manifest's `kb`, as the contract's local layout fixes. Otherwise reply `KB_PATH is not inside a read-only clone at a folder <kb>/repo. Run knowledge-base:setup-operator.` and stop: a working checkout is never read or written.
