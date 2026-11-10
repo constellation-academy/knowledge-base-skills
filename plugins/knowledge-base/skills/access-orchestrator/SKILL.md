@@ -29,7 +29,7 @@ Routes one request to exactly one of three routes, read, write or answer, and re
 
 ## 3. Pick the skill
 
-**No KB**: the read route goes to the one skill in the session's skill list named `<plugin>:kb-provider` (any plugin): a team read skill may serve resources from other sources. None: reply `This project has no knowledge base. Run knowledge-base:setup-operator.` and stop. Several: ask one question naming them. Write and answer: reply `Writing to and answering from the knowledge base need the KB in this project. Run knowledge-base:setup-operator.` and stop.
+**No KB**: the read route goes to the one skill in the session's skill list named `<plugin>:kb-provider` (any plugin): a team read skill may serve resources from other sources. None, or the request comes from that `kb-provider` itself: reply `This project has no knowledge base. Run knowledge-base:setup-operator.` and stop; a read is never routed back to the skill that sent it, and never to this skill. Several: ask one question naming them. Write and answer: reply `Writing to and answering from the knowledge base need the KB in this project. Run knowledge-base:setup-operator.` and stop.
 
 **With a KB**, look up the route in the manifest's `skills`:
 

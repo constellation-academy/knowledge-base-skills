@@ -16,9 +16,9 @@ Every command below runs unchanged in bash, zsh and PowerShell.
 
 1. Read `KB_PATH`. Unset: the project has no KB. Reply `This project has no knowledge base: KB_PATH is unset. Run knowledge-base:setup-operator.` and stop.
 2. Read `<KB_PATH>/kb-manifest.json` with the file tools. Missing or not valid JSON: reply `KB_PATH (<KB_PATH>) holds no valid kb-manifest.json. Run knowledge-base:setup-operator.` and stop.
-3. Run `git -C "<KB_PATH>" rev-parse --show-toplevel`. Its output is `<clone>`, the read-only clone's root. Its parent folder is `<kb folder>`.
+3. Run `git -C "<KB_PATH>" rev-parse --show-toplevel`. Its output is `<clone>`, the read-only clone's root. Its parent folder is `<kb folder>`. It fails: reply `KB_PATH (<KB_PATH>) is not inside a git repository. Run knowledge-base:setup-operator.` and stop.
 4. `<clone>` must be a folder named `repo` inside a folder named after the manifest's `kb`, as the contract's local layout fixes. Otherwise reply `KB_PATH is not inside a read-only clone at a folder <kb>/repo. Run knowledge-base:setup-operator.` and stop: a working checkout is never read or written.
-5. `git -C "<KB_PATH>" rev-parse --show-prefix` must print the manifest's `kb_root` followed by `/`, or nothing when `kb_root` is `.`. Otherwise reply `KB_PATH is not the KB root <kb_root> of the clone <clone>. Run knowledge-base:setup-operator.` and stop.
+5. `git -C "<KB_PATH>" rev-parse --show-prefix` must print `<kb_root>` followed by `/`, or nothing when `<kb_root>` is `.`. Otherwise reply `KB_PATH is not the KB root <kb_root> of the clone <clone>. Run knowledge-base:setup-operator.` and stop.
 
 Names used by the skills:
 
@@ -26,6 +26,7 @@ Names used by the skills:
 |---|---|
 | `<kb>` | the manifest's `kb` |
 | `<default>` | the manifest's `default_branch` |
+| `<kb_root>` | the manifest's `kb_root` without a leading `./` and without a trailing `/`, so `knowledge`, `./knowledge` and `knowledge/` are all `knowledge`; `.` and `./` are `.` |
 | `<KB root>` | `KB_PATH`; every path in the manifest, the graph and a query row is relative to it |
 | `<clone>` | the read-only clone's root |
 | `<import>` | `<kb folder>/import` |

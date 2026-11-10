@@ -7,7 +7,7 @@ description: Use when a document in the project's knowledge base (KB) must be cr
 
 Creates or updates one document in a fresh worktree from the read-only clone and opens a pull request against `<default>`. The clone's own checkout is never touched, and nothing is merged.
 
-Mechanics (locating the KB, shell rules, the names `<kb>`, `<default>`, `<clone>`, `<kb folder>`) are in `../update-operator/runtime.md`, relative to this skill's directory. Follow them exactly. The manifest fields and placeholder rules are in the contract, `contracts/knowledge-base.v1.md` at the plugin root, section "Manifest".
+Mechanics (locating the KB, shell rules, the names `<kb>`, `<default>`, `<kb_root>`, `<clone>`, `<kb folder>`) are in `../update-operator/runtime.md`, relative to this skill's directory. Follow them exactly. The manifest fields and placeholder rules are in the contract, `contracts/knowledge-base.v1.md` at the plugin root, section "Manifest".
 
 ## Inputs
 
@@ -16,7 +16,7 @@ The contract's section "Routes" lists the same inputs for team writers.
 - `type`: a key of the manifest's `article_types`
 - `mode`: `create` or `update`
 - `title`: for `update`, absent means the document's current frontmatter `title`, read from the clone
-- `content`: the document's text, or for `update` the change to make, as the requester stated it
+- `content`: the document's text, or for `update` the change to make, as the requester stated it; a complete body is written as given
 - `path`: `update` only, the document's path relative to the KB root; absent means the one document in the type's `folder` whose frontmatter `title` matches the request, found in the clone
 - `ticket`: when a pattern contains `{ticket}`
 - values for required frontmatter keys, where the requester gave them
@@ -33,8 +33,12 @@ The contract's section "Routes" lists the same inputs for team writers.
 **An invalid input** stops the run before anything is written, with `invalid <input>: <reason>`:
 - `frontmatter` lacks a key of `required_frontmatter`, or is not an object.
 - `number` or `slug` does not match its form, or is given for `update`.
+- `number` is given while the type's `file_name` has no `{number}`.
+- `frontmatter` holds a `type` other than the `type` input, or a `title` other than the `title` input.
 - A `companion_changes` path is absolute, contains a `..` segment or a backslash, or resolves to the document's own path; or a path appears twice.
 - `commit_body` has more than three lines.
+
+**Frontmatter form**: every frontmatter this skill writes or rewrites is plain inline YAML between `---` lines, one `key: value` line per key in the given order; scalars unquoted unless YAML requires quotes; lists inline as `[a, b]`; objects inline as `{ k: v }`; never block lists or block objects. Team lint checks compare raw text, so the form never varies.
 
 ## Steps
 
@@ -51,7 +55,7 @@ The contract's section "Routes" lists the same inputs for team writers.
    - `frontmatter` given: it is the frontmatter, as given.
    - Otherwise, for `create`, read the `template` file at `<KB root>/<template>` and give every key of `required_frontmatter` a value: `type` is the article type, `title` the title, a key the requester gave a value for takes that value, and a key that only describes the document's own content (such as a description or tags) is derived from `content`. Any other key without a value is a missing input. For `update`, the same holds for a required key the document lacks.
 6. Validate the inputs (see "An invalid input"). The document's own path is known here for `update`; for `create` it is checked again in step 3.
-7. `git -C "<clone>" ls-remote --heads origin "<branch>"` prints a line: the branch already exists on the remote. Return `branch <branch> already exists on origin` and stop; never reuse or overwrite it.
+7. `git -C "<clone>" ls-remote --heads origin "<branch>"` prints a line: the branch already exists on the remote, for example from an earlier change to the same document. Try `<branch>-2`, then `<branch>-3`, and so on, with the same command; the first name it prints nothing for is `<branch>` from here on. Never reuse or overwrite a remote branch.
 8. `git -C "<clone>" rev-parse --verify --quiet "refs/heads/<branch>"` succeeds, or `<worktree>` (step 2) exists: an earlier run left this branch or worktree behind after a failed push. Return `an earlier run left <branch> in <worktree>; push it or remove it, then run again` and stop; never delete it unasked.
 
 ### 2. Worktree
@@ -62,26 +66,26 @@ The contract's section "Routes" lists the same inputs for team writers.
 git -C "<clone>" worktree add -b "<branch>" "<worktree>" origin/<default>
 ```
 
-From here on, the KB root is `<worktree>/<kb_root>` (the manifest's `kb_root`; `.` is `<worktree>` itself). Every file is read and written there, never in `<clone>`.
+From here on, the KB root is `<worktree>/<kb_root>` (`<worktree>` itself when `<kb_root>` is `.`). Every file is read and written there, never in `<clone>`.
 
 ### 3. Write the files
 
 **create**
 1. `{number}`, when `file_name` has it: the `number` input, else per the contract from the existing file names in `folder` of the worktree (Glob tool).
 2. The target is `<KB root>/<folder><rendered file_name>`. It exists already: return `<path> already exists; use mode update` and stop (after step 5's cleanup). A `companion_changes` path equal to it: `invalid companion_changes: <path> is the document itself`, stop (after step 5's cleanup).
-3. Start from the worktree's `template` file and write the frontmatter settled in step 1.
-4. Fill the template's body from `content`, keeping its headings and order. Write the file with the file tools.
+3. Start from the worktree's `template` file and write the frontmatter settled in step 1, in the frontmatter form.
+4. The body: `content` is a complete document body (a team writer passes one, or it already carries the template's headings): write it below the frontmatter as given. Otherwise fill the template's body from `content`, keeping its headings and order. Write the file with the file tools.
 
 **update**
 1. The target is `<KB root>/<path>`. It does not exist: return `not found: <path>` and stop (after step 5's cleanup).
-2. Read it and apply the change. With a `frontmatter` input, write that frontmatter; otherwise keep every frontmatter key it has and add any required key settled in step 1. Write it back.
+2. Read it and apply the change. With a `frontmatter` input, write that frontmatter; otherwise keep every frontmatter key it has, in its order, and add any required key settled in step 1. Write the frontmatter in the frontmatter form and the file back.
 
 **companion_changes**: write each `content` to `<KB root>/<path>` with the file tools, creating or replacing the file.
 
 ### 4. Check, commit, push, pull request
 
 1. The manifest has `pr.pre_commit`: run it in the worktree root as `cd "<worktree>"; <pre_commit>`, allowing up to 10 minutes. It exits non-zero: return `pre_commit failed: <pre_commit>` followed by its output, run step 5's cleanup, and stop. The files it changes, such as regenerated indexes, are committed with the document.
-2. List every change in the worktree with `git -C "<worktree>" status --porcelain --untracked-files=all`; each line ends in a path relative to the worktree root (for a rename, both paths). With `kb_root` other than `.`, a path outside `<kb_root>/`: return `pre_commit changed files outside the KB root: <paths>`, run step 5's cleanup, and stop.
+2. List every change in the worktree with `git -C "<worktree>" -c core.quotePath=false status --porcelain --untracked-files=all`; each line ends in a path relative to the worktree root (for a rename, both paths). With `<kb_root>` other than `.`, a path outside `<kb_root>/`: return `pre_commit changed files outside the KB root: <paths>`, run step 5's cleanup, and stop.
 3. Stage every change under the KB root, never outside it, and list what is staged:
 
    ```
@@ -89,7 +93,7 @@ From here on, the KB root is `<worktree>/<kb_root>` (the manifest's `kb_root`; `
    git -C "<worktree>" diff --cached --name-only
    ```
 
-   `<kb_root>` is the manifest's `kb_root` (`.` for the whole repository). The listed paths are `<staged paths>` for the report.
+   The listed paths are `<staged paths>` for the report. The list is empty: the change leaves every file as it was; return `nothing to commit: <path> already holds this content`, run step 5's cleanup, and stop.
 4. Write the commit message to `<kb folder>/worktrees/<name>.commit-message` with the file tools, then:
 
    ```

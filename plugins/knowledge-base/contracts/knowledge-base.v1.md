@@ -52,7 +52,7 @@ Every KB ships `kb-manifest.json` at its KB root. It is read from the read-only 
 - `kb` (required): the KB id, lower-case letters, digits and hyphens. It names the container, network, MCP server and local folder.
 - `contract` (required): the contract major version the manifest follows, `"1"` for this file.
 - `default_branch` (required): the branch every read and every write starts from, e.g. `main`.
-- `kb_root` (required): the KB root's path relative to the repository root, `.` when the KB is the whole repository. The manifest sits in that folder, and every other path in the manifest is relative to it.
+- `kb_root` (required): the KB root's path relative to the repository root, `.` when the KB is the whole repository. A leading `./` and a trailing `/` are ignored: `knowledge`, `./knowledge` and `knowledge/` name the same folder. The manifest sits in that folder, and every other path in the manifest is relative to it.
 - `export` (required): the team's export command.
   - `cmd`: the command line; it contains both placeholders.
   - `placeholders`: exactly `["{ref}", "{out}"]`.
@@ -75,7 +75,7 @@ Every KB ships `kb-manifest.json` at its KB root. It is read from the read-only 
   - `answer`: one skill.
 - `pr` (required): how the writer names and opens a change.
   - `host`: `github` or `azure-devops`.
-  - `branch_pattern`: the branch name.
+  - `branch_pattern`: the branch name. When the rendered name already exists on the remote, the writer appends `-2`, `-3`, … and takes the first free name, so repeated changes to one document each get their own branch.
   - `commit_pattern`: the commit subject, or `{"add": …, "update": …}` for separate patterns for a new and a changed document.
   - `title_pattern` (optional): the pull request title. Absent means the subject of the commit the writer made, rendered from the `commit_pattern` entry it used (`add` or `update` in the object form).
   - `template` (optional): the pull request description template.
@@ -161,12 +161,14 @@ The export command writes one JSON object to `{out}`:
 - A read in a project without a KB (`KB_PATH` unset, or no manifest at `KB_PATH`) goes to the one installed skill named `<plugin>:kb-provider`; with none it reports that the project has no KB, and with several it asks which one. Write and answer need the KB and report that `knowledge-base:setup-operator` sets it up.
 - A team skill calls its generic skill and may add its own logic around it.
 - `content-provider` fetches resources and returns ranked material for a question; it never answers. `answer-engine` answers from that material, cites document paths, and says so when the KB is silent. `article-writer` writes from the type's template with its required frontmatter and opens the pull request: via `gh` on GitHub, via `az` on Azure DevOps when installed, otherwise it pushes the branch and returns the link to create the pull request.
-- `article-writer` inputs: `type`, `mode` (`create` or `update`), `title`, `content`, `path` (update), `ticket` (when a pattern needs it), values for required frontmatter keys, and these optional inputs for team writers:
-  - `frontmatter`: the document's complete frontmatter as an object, written as given; it must hold every key of `required_frontmatter`.
-  - `number`, `slug` (create only): explicit `{number}` (digits) and `{slug}` values instead of derived ones.
-  - `companion_changes`: a list of `{path, content}`: further files under the KB root, written in the same worktree and committed with the document. A path is relative to the KB root, never absolute, never with a `..` segment, and never the document itself.
+- `article-writer` inputs: `type`, `mode` (`create` or `update`), `title`, `content` (a complete body is written as given; otherwise it fills the type's template), `path` (update), `ticket` (when a pattern needs it), values for required frontmatter keys, and these optional inputs for team writers:
+  - `frontmatter`: the document's complete frontmatter as an object, written as given; it must hold every key of `required_frontmatter`, and a `type` or `title` key in it must equal the `type` and `title` inputs.
+  - `number`, `slug` (create only): explicit `{number}` (digits) and `{slug}` (`^[a-z0-9]+(-[a-z0-9]+)*$`) values instead of derived ones; `number` only for a type whose `file_name` has `{number}`.
+  - `companion_changes`: a list of `{path, content}`: further files under the KB root, written in the same worktree and committed with the document. A path is relative to the KB root, never absolute, never with a `..` segment or a backslash, never the document itself, and appears at most once.
   - `commit_body`: one to three lines, appended to the commit message after a blank line.
   - `pr_body`: the complete pull request description, replacing `pr.template` and the default.
+  - An input that breaks one of these rules stops the write before anything is written, with `invalid <input>: <reason>`.
+- `article-writer` writes every frontmatter it writes or rewrites deterministically, since team lint checks compare raw text: plain inline YAML between `---` lines, one `key: value` line per key in the given order; scalars unquoted unless YAML requires quotes; lists inline as `[a, b]`; objects inline as `{ k: v }`; never block lists or block objects.
 - `knowledge-base:update-operator` (fetch and index) is internal. `knowledge-base:setup-operator` sets up a KB once per project.
 - A request for a KB other than the project's is refused.
 
