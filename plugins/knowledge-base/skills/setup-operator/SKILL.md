@@ -90,7 +90,10 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 ## 3. Docker and the Neo4j container
 
 1. Network: `docker network inspect --format '{{.Name}}' kb-<kb>` fails: `docker network create kb-<kb>`.
-2. `docker ps -a --filter 'name=^neo4j-<kb>$' --format '{{.Names}}'` prints `neo4j-<kb>`: step 3a. Prints nothing: step 3b.
+2. `docker ps -a --filter 'name=^neo4j-<kb>' --format '{{.Names}}'` lists the KB's containers. Only the exact names `neo4j-<kb>` and `neo4j-<kb>.previous` count; any other name in the list belongs to another KB id and is ignored.
+   - `neo4j-<kb>` and `neo4j-<kb>.previous` both: an earlier recreate kept both after a failure on a new image (step 3a.7.6). Reply `neo4j-<kb> (new image, stopped) and neo4j-<kb>.previous (old image) both exist from an earlier recreate whose step <step, if the report named it> failed. Fix that cause and run docker start neo4j-<kb>, then docker rm neo4j-<kb>.previous once it runs; the old image cannot open the upgraded data.` and stop.
+   - Only `neo4j-<kb>.previous`: an earlier recreate stopped between renaming the old container and finishing. Ask `An earlier run left the old container as neo4j-<kb>.previous (stopped). Restore it as neo4j-<kb> and continue?` Yes: `docker rename neo4j-<kb>.previous neo4j-<kb>`, then step 3a. Anything else: stop.
+   - `neo4j-<kb>`: step 3a. Neither: step 3b.
 
 ### 3a. Reuse the container
 
@@ -100,13 +103,13 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
    docker inspect --format '{{.State.Status}} {{.Config.Image}} {{.HostConfig.RestartPolicy.Name}} {{json .HostConfig.PortBindings}} {{range .Mounts}}{{.Source}}={{.Destination}} {{end}}' neo4j-<kb>
    ```
 
-   `<old image>` is `.Config.Image`; `<bolt>` and `<http>` are the host ports bound to `7687/tcp` and `7474/tcp`; `<data>` is the source mounted at `/data`.
+   `<old image>` is `.Config.Image`, the tag shown in the question; `<old image id>` is `docker inspect --format '{{.Image}}' neo4j-<kb>`, the image the container actually runs. `<same image>` holds when `<old image id>` equals `docker image inspect --format '{{.Id}}' <image>` (after `docker pull <image>`); `<bolt>` and `<http>` are the host ports bound to `7687/tcp` and `7474/tcp`; `<data>` is the source mounted at `/data`.
 
    The names of its env keys, never their values, and those its image sets itself, and whether authentication is off, by `NEO4J_AUTH=none` or `NEO4J_dbms_security_auth__enabled=false` in any letter case (prints `auth-none` or nothing):
 
    ```
    docker inspect --format '{{range .Config.Env}}{{index (split . `=`) 0}} {{end}}' neo4j-<kb>
-   docker image inspect --format '{{range .Config.Env}}{{index (split . `=`) 0}} {{end}}' <old image>
+   docker image inspect --format '{{range .Config.Env}}{{index (split . `=`) 0}} {{end}}' <old image id>
    docker inspect --format '{{range .Config.Env}}{{if or (eq (lower .) `neo4j_auth=none`) (eq (lower .) `neo4j_dbms_security_auth__enabled=false`)}}auth-none{{end}}{{end}}' neo4j-<kb>
    ```
 
@@ -116,10 +119,16 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 4. Collect what needs a new container: `NEO4J_PLUGINS` without `apoc`; `NEO4J_apoc_import_file_enabled` not `true`; `NEO4J_server_directories_import` not `/import`; no mount of `<import>` at `/import`; a port bound to an address other than `127.0.0.1` (an empty `HostIp`, `0.0.0.0` and `::` all count as other).
 5. Nothing collected: fix in place what can be. Restart policy not `unless-stopped`: `docker update --restart unless-stopped neo4j-<kb>`. `docker network inspect --format '{{range .Containers}}{{.Name}} {{end}}' kb-<kb>` lacks `neo4j-<kb>`: `docker network connect kb-<kb> neo4j-<kb>`. Continue at step 3a.8.
 6. Something collected and no `/data` mount: the data sits inside the container and a new container would lose it. Reply `neo4j-<kb> lacks <list> and keeps its data inside the container; recreating it would lose the data. Export what you need, remove it yourself, and run setup-operator again.` and stop.
-7. Something collected: sort the `<own keys>` into three groups.
-   - Set by the new container itself: `NEO4J_PLUGINS`, `NEO4J_apoc_import_file_enabled`, `NEO4J_server_directories_import` (from `neo4j.env`).
-   - Not carried over: every key of which one word, ignoring case, is `AUTH`, `PASS`, `PASSWORD`, `PWD`, `SECRET`, `TOKEN`, `KEY`, `CRED`, `CREDENTIALS`, `URL` or `URI`. The words of a key are its parts between underscores: `NEO4J_dbms_ssl_policy_bolt_private__key__password` has the words `key` and `password`; `NEO4J_dbms_security_procedures_unrestricted` has none of them. Their values may be credentials, and carrying a value means reading it, so they are never read. `NEO4J_AUTH` and `NEO4J_dbms_security_auth__enabled` are among them; the auth note covers what they did.
-   - Carried over: every other key. Read each value on its own, `docker inspect --format '{{range .Config.Env}}{{if eq (index (split . `=`) 0) `<key>`}}{{.}}{{end}}{{end}}' neo4j-<kb>`, and add the printed `<key>=<value>` line to `neo4j.env` (step 4.1).
+7. Something collected: sort the `<own keys>` with the script, which reads only the names:
+
+   ```
+   docker run --rm -v "<scripts>:/s:ro" --entrypoint python <mcp image> /s/sort-env-keys.py <own keys>
+   ```
+
+   Each line is `<group> <key>`:
+   - `own`: set by the new container itself (`NEO4J_PLUGINS`, `NEO4J_apoc_import_file_enabled`, `NEO4J_server_directories_import`, from `neo4j.env`).
+   - `skip`: not carried over. The key contains, ignoring case, `PASS`, `PWD`, `SECRET`, `TOKEN`, `KEY`, `CRED`, `AUTH` or `URL`, or has `URI` as a whole word between `_`, `.` or `-`. Its value may be a credential, and carrying a value means reading it, so it is never read. `NEO4J_AUTH` and `NEO4J_dbms_security_auth__enabled` are among them; the auth note covers what they did.
+   - `carry`: carried over. Read each value on its own, `docker inspect --format '{{range .Config.Env}}{{if eq (index (split . `=`) 0) `<key>`}}{{.}}{{end}}{{end}}' neo4j-<kb>`, and add the printed `<key>=<value>` line to `neo4j.env` (step 4.1).
 
    `<auth note>`:
    - Authentication on (step 3a.1 printed nothing): `the same password, which stays in <data>`.
@@ -129,17 +138,19 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 
    `neo4j-<kb> lacks <list>. Recreate it? I would stop the container neo4j-<kb>, keep it as neo4j-<kb>.previous until the new one runs, then remove it, and start the new one as setup-operator does: image <old image> → neo4j:2026.06.0<image note>; the same data folder <data>; the same ports 127.0.0.1:<bolt> and 127.0.0.1:<http>; the mounts <other mounts> unchanged; the env keys <carried keys> carried over; the env keys <keys not carried> not carried over, because their values may be credentials, which this setup never reads (set them again yourself if they are needed); <auth note>.`
 
-   `<image note>`: empty when `<old image>` is `neo4j:2026.06.0`; otherwise `, which upgrades the store on first start: the old image cannot open it afterwards, and a newer old image's store does not open at all`. An empty list is written `none`.
+   `<image note>`: empty with `<same image>`; otherwise `, which upgrades the store on first start: the old image cannot open it afterwards, and a newer old image's store does not open at all`. An empty list is written `none`.
 
    Authentication off, and `<password state>` is `present`: before asking, reply `<settings> already holds a NEO4J_PASSWORD, but neo4j-<kb> runs without authentication; remove that key from <settings>, then run setup-operator again.` and stop; nothing is changed.
 
    No, or anything else: skip steps 5 and 6 and the index part of step 7; the report names `<list>`. Otherwise:
-   1. `docker stop neo4j-<kb>`, then `docker rename neo4j-<kb> neo4j-<kb>.previous`. The dot keeps the name apart from every KB id, which has none.
+   1. `docker stop -t 60 neo4j-<kb>` (time for a clean shutdown), then `docker rename neo4j-<kb> neo4j-<kb>.previous`. The dot keeps the name apart from every KB id, which has none. From here on, any failure or stop before step 3a.7.5, a merge `error:` of step 4.2 included, goes to step 3a.7.6.
    2. `keep auth off`: add `NEO4J_AUTH=none` to `neo4j.env` (step 4.1) and leave `NEO4J_PASSWORD` out of the fragment (step 4.2).
    3. Authentication was off and the answer was yes: step 4 with the placeholder in the fragment, then step 5.1b; otherwise step 4.
    4. Step 5.2 to 5.5 with these `<data>`, `<bolt>`, `<http>`; each further mount is passed again as `-v "<source>:<destination>"`.
    5. All of step 5 passed: `docker rm neo4j-<kb>.previous`.
-   6. Any of step 5 failed: roll back. `docker rm -f neo4j-<kb>` when step 5.2 created it, then `docker rename neo4j-<kb>.previous neo4j-<kb>` and `docker start neo4j-<kb>`. The report names the failed step. When `<old image>` differs from `<image>` and step 5.2 already started, the new image may have upgraded the store, and the old container then cannot open it; the report says so.
+   6. A failure after the rename:
+      - Not `<same image>`, and the `docker run -d` of step 5.2 exited 0: the new image may already have upgraded the store, and the old image cannot open it again. Do not roll back. `docker stop -t 60 neo4j-<kb>`, keep both containers, and report: `recreate of neo4j-<kb> failed at step <step>: <reason>. Both containers are kept: neo4j-<kb> (new image, stopped) and neo4j-<kb>.previous (old image), which cannot open the upgraded data. Fix the cause, run docker start neo4j-<kb>, then docker rm neo4j-<kb>.previous.`
+      - Otherwise roll back: `docker rm -f neo4j-<kb>` (always; a `No such container` error is expected), then `docker rename neo4j-<kb>.previous neo4j-<kb>` and `docker start neo4j-<kb>`. The report names the failed step and the settings state: after a successful step 5.1b, `<settings> now holds a NEO4J_PASSWORD that the restored neo4j-<kb> (authentication off) does not use; remove that key before running setup-operator again`; otherwise `<settings>` is as step 4.2 left it.
 8. Authentication on and `<password state>` is `absent`: the container's password is not in this project. Never reset it, and never ask for it during this run: the report says, under "to add by hand", `NEO4J_USERNAME and NEO4J_PASSWORD of neo4j-<kb>, into the env of <settings>, after this setup finishes`.
 
 ### 3b. A new container
@@ -220,17 +231,17 @@ A new or recreated container only. A reused container (step 3a.5) skips to step 
    docker run --rm -v "<data>:/data" -v "<project>/.claude:/w" -v "<scripts>:/s:ro" --entrypoint sh <image> /s/new-password.sh
    ```
 
-   1b. A recreate that turns authentication on, with `<password state>` `placeholder`: instead, a throwaway container of the old image starts Neo4j on `<data>` with authentication off, sets a newly generated password with `ALTER USER`, replaces the placeholder in `<settings>`, and stops. The old image leaves the store format as it is, so the rollback of step 3a.7 still opens it:
+   1b. A recreate that turns authentication on, with `<password state>` `placeholder`: instead, a throwaway container of the old container's own image (`<old image id>`, kept locally while `neo4j-<kb>.previous` exists) starts Neo4j on `<data>` with authentication off, sets a newly generated password with `ALTER USER`, replaces the placeholder in `<settings>`, and stops. The old image leaves the store format as it is, so the rollback of step 3a.7 still opens it:
 
    ```
-   docker run --rm -e NEO4J_AUTH=none -v "<data>:/data" -v "<project>/.claude:/w" -v "<scripts>:/s:ro" --entrypoint bash <old image> /s/reset-password.sh
+   docker run --rm -e NEO4J_AUTH=none -v "<data>:/data" -v "<project>/.claude:/w" -v "<scripts>:/s:ro" --entrypoint bash <old image id> /s/reset-password.sh
    ```
 
    `<password state>` `present` never reaches step 5.1 or 5.1b: steps 3a.7, 3b.1 and 3b.2 have already stopped or skipped it.
 
    Both pass the password to `neo4j-admin` (`@/tmp/pw`, an argument file), `cypher-shell` (`-f`) and `sed` (`-f`) only through files in the container's own `/tmp`, which goes away with the container.
 
-   Exit code 3: no placeholder in `<settings>`; the developer's own `NEO4J_PASSWORD` is there. Reply `<settings> already holds a NEO4J_PASSWORD; remove it, or answer "keep auth off", then run setup-operator again.` and stop. Any other non-zero exit code: reply `the password step failed with exit code <code>; nothing was started` and stop. `<settings>` is unchanged, since the scripts write it only as their last step. For a new container, also remove `<data>`, which this run created (Commands per OS), so the next run starts clean. For a recreate, roll back as in step 3a.7: with authentication off, the old container opens `<data>` whether or not `ALTER USER` ran.
+   Exit code 3: no placeholder in `<settings>`; the developer's own `NEO4J_PASSWORD` is there. Reply `<settings> already holds a NEO4J_PASSWORD; remove it, or answer "keep auth off", then run setup-operator again.` and stop. Any other non-zero exit code: reply `the password step failed with exit code <code>; nothing was started` and stop. `<settings>` is unchanged, since the scripts write it only as their last step. For a new container, also remove `<data>`, which this run created (Commands per OS), so the next run starts clean. For a recreate, go to step 3a.7.6, which rolls back: with authentication off, the old container opens `<data>` whether or not `ALTER USER` ran.
 2. Start Neo4j:
 
    ```
