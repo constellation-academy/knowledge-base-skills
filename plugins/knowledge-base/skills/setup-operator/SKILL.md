@@ -70,7 +70,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 3. `git -C "<project>" ls-files --error-unmatch ".claude/settings.local.json"` exits 0: the file is tracked, and a password in it would be committed. Reply `<settings> is tracked by git; untrack it (git rm --cached) and add it to .gitignore, then run setup-operator again.` and stop. Any other exit code (untracked, or no git repository): continue. In a git repository, `git -C "<project>" check-ignore -q ".claude/settings.local.json"` exits 1: the file is not ignored and could still be committed; the report says `add .claude/settings.local.json to .gitignore`.
 4. `docker pull <mcp image>`.
 5. Protect the settings: merge (section "Merge into the settings") a fragment with `permissions.deny` = `["Read(/.claude/settings.local.json)"]` and `permissions.allow` = `["Read(//<plugins folder>/**)"]` (see "Allow rules"). Its `<password state>` is the state for the steps below.
-6. Read `KB_PATH` (`printenv KB_PATH`, or `[Environment]::GetEnvironmentVariable('KB_PATH')`). Set: the project already has a KB. Follow "Locate the KB" in `runtime.md`; it passes: `<kb>`, `<clone>` and `<KB_PATH>` are known, skip step 2. It stops: reply its message plus `KB_PATH points to <value>; fix or remove it in <settings>, then run setup-operator again.` and stop; never replace a `KB_PATH` yourself.
+6. Read `KB_PATH` (`printenv KB_PATH`, or `[Environment]::GetEnvironmentVariable('KB_PATH')`). Set: the project already has a KB. Follow "Locate the KB" in `runtime.md`; it passes: `<kb>`, `<clone>` and `<KB_PATH>` are known, skip steps 2.1 to 2.6. It stops: reply its message plus `KB_PATH points to <value>; fix or remove it in <settings>, then run setup-operator again.` and stop; never replace a `KB_PATH` yourself.
 
 ## 2. Clone the KB
 
@@ -86,12 +86,13 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 4. Find the manifest with the Glob tool: `**/kb-manifest.json` in the clone, ignoring `.worktrees`. Not exactly one, or its `kb` does not match `^[a-z0-9][a-z0-9-]*$`, or its `contract` is not `"1"`, or its folder relative to the repository root is not `<kb_root>`: remove the staging folder, reply what is wrong, and stop.
 5. `<home>/.kb/<kb>/repo` exists (it holds another URL, since step 2.2 found none): remove the staging folder, reply `<home>/.kb/<kb>/repo already holds a clone of <its origin URL>; one machine keeps one clone per KB id.` and stop. Otherwise create `<kb folder>` (Commands per OS) and move the clone into place with `mv "<home>/.kb/.incoming" "<clone>"` (bash, zsh and PowerShell alike).
 6. `git -C "<clone>" symbolic-ref --short HEAD` must print `<default>`. It prints another branch: `git -C "<clone>" switch --quiet <default>`. The clone holds no local changes, so this changes no content.
+7. Read `NEO4J_SHELL` (`printenv NEO4J_SHELL`, or `[Environment]::GetEnvironmentVariable('NEO4J_SHELL')`). It is set and differs from `<NEO4J_SHELL>`: the project uses another store, such as a local Neo4j. That is a store switch. Ask exactly: `This project's NEO4J_SHELL is <value>. This setup would replace it with <NEO4J_SHELL>, the Docker store neo4j-<kb>, so every query goes there. Switch?` Yes: step 4.2 replaces the key (`replace_env`). Anything else: reply `kept the current store; nothing was set up` and stop. Never keep a differing `NEO4J_SHELL` silently.
 
 ## 3. Docker and the Neo4j container
 
 1. Network: `docker network inspect --format '{{.Internal}}' kb-<kb>`.
    - It fails (no such network): `docker network create --internal kb-<kb>`.
-   - It prints `false`: the network has internet access. With a container `neo4j-<kb>` (step 3a), that is part of what step 3a.4 collects. Without one, `docker network rm kb-<kb>` and `docker network create --internal kb-<kb>`; the network holds no data, and the report names the change. `docker network rm` fails because another container is attached: reply its error line and stop.
+   - It prints `false`: the network has internet access. With a container `neo4j-<kb>` (step 3a), that is part of what step 3a.4 collects. Without one, ask exactly: `The Docker network kb-<kb> has internet access. Replace it with an internal network of the same name? It holds no data.` Yes: `docker network rm kb-<kb>`, then `docker network create --internal kb-<kb>`; the report names the change. Anything else: stop. `docker network rm` fails because another container is attached: reply its error line and stop.
 2. `docker ps -a --filter 'name=^neo4j-<kb>' --format '{{.Names}}'` lists the KB's containers. Only the exact names `neo4j-<kb>` and `neo4j-<kb>.previous` count; any other name in the list belongs to another KB id and is ignored.
    - `neo4j-<kb>` and `neo4j-<kb>.previous` both: an earlier recreate kept both after a failure on a new image (step 3a.7.6). Reply `neo4j-<kb> (new image, stopped) and neo4j-<kb>.previous (old image) both exist from an earlier recreate whose step <step, if the report named it> failed. Fix that cause and run docker start neo4j-<kb>, then docker rm neo4j-<kb>.previous once it runs; the old image cannot open the upgraded data.` and stop.
    - Only `neo4j-<kb>.previous`: an earlier recreate stopped between renaming the old container and finishing. Ask `An earlier run left the old container as neo4j-<kb>.previous (stopped). Restore it as neo4j-<kb> and continue?` Yes: `docker rename neo4j-<kb>.previous neo4j-<kb>`, then step 3a. Anything else: stop.
@@ -102,10 +103,10 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 1. Inspect it. Never print `.Config.Env` or any env value except as step 3a.7 allows: it can hold the password.
 
    ```
-   docker inspect --format '{{.State.Status}} {{.Config.Image}} {{.HostConfig.RestartPolicy.Name}} {{json .HostConfig.PortBindings}} {{range .Mounts}}{{.Source}}={{.Destination}} {{end}}' neo4j-<kb>
+   docker inspect --format '{{.State.Status}} {{.Config.Image}} {{.HostConfig.RestartPolicy.Name}} {{json .HostConfig.PortBindings}} {{range .Mounts}}{{.Source}}={{.Destination}} {{end}}| {{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' neo4j-<kb>
    ```
 
-   `<old image>` is `.Config.Image`, the tag shown in the question; `<old image id>` is `docker inspect --format '{{.Image}}' neo4j-<kb>`, the image the container actually runs. `<same image>` holds when `<old image id>` equals `docker image inspect --format '{{.Id}}' <image>` (after `docker pull <image>`); `<ports>` are its published ports, from `.HostConfig.PortBindings`; `<data>` is the source mounted at `/data`.
+   `<old image>` is `.Config.Image`, the tag shown in the question; `<old image id>` is `docker inspect --format '{{.Image}}' neo4j-<kb>`, the image the container actually runs. `<same image>` holds when `<old image id>` equals `docker image inspect --format '{{.Id}}' <image>` (after `docker pull <image>`); `<ports>` are its published ports, from `.HostConfig.PortBindings`; `<networks>` are the networks after the `|`, and `<other networks>` those other than `kb-<kb>`; `<data>` is the source mounted at `/data`.
 
    The names of its env keys, never their values, and those its image sets itself, and whether authentication is off, by `NEO4J_AUTH=none` or `NEO4J_dbms_security_auth__enabled=false` in any letter case (prints `auth-none` or nothing):
 
@@ -118,7 +119,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
    `<own keys>` are the container's keys that its image does not set.
 2. Not `running`: `docker start neo4j-<kb>`.
 3. `docker exec neo4j-<kb> printenv NEO4J_PLUGINS NEO4J_apoc_import_file_enabled NEO4J_server_directories_import NEO4J_dbms_security_procedures_allowlist`.
-4. Collect what needs a new container: `NEO4J_PLUGINS` without `apoc`; `NEO4J_apoc_import_file_enabled` not `true`; `NEO4J_server_directories_import` not `/import`; `NEO4J_dbms_security_procedures_allowlist` not equal to its line in `<scripts>/neo4j.env`; no mount of `<import>` at `/import`; any published port (`<ports>` not empty); the network `kb-<kb>` not internal (step 3.1 printed `false`).
+4. Collect what needs a new container: `NEO4J_PLUGINS` without `apoc`; `NEO4J_apoc_import_file_enabled` not `true`; `NEO4J_server_directories_import` not `/import`; `NEO4J_dbms_security_procedures_allowlist` not equal to its line in `<scripts>/neo4j.env`; no mount of `<import>` at `/import`; any published port (`<ports>` not empty); the network `kb-<kb>` not internal (step 3.1 printed `false`); any network other than `kb-<kb>` (`<other networks>` not empty), since each one may route outside.
 5. Nothing collected: fix in place what can be. Restart policy not `unless-stopped`: `docker update --restart unless-stopped neo4j-<kb>`. `docker network inspect --format '{{range .Containers}}{{.Name}} {{end}}' kb-<kb>` lacks `neo4j-<kb>`: `docker network connect kb-<kb> neo4j-<kb>`. Continue at step 3a.8.
 6. Something collected and no `/data` mount: the data sits inside the container and a new container would lose it. Reply `neo4j-<kb> lacks <list> and keeps its data inside the container; recreating it would lose the data. Export what you need, remove it yourself, and run setup-operator again.` and stop.
 7. Something collected: sort the `<own keys>` with the script, which reads only the names:
@@ -138,7 +139,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 
    Then ask exactly this, and accept only an explicit yes (or, with authentication off, `keep auth off`) to it:
 
-   `neo4j-<kb> lacks <list>. Recreate it? I would stop the container neo4j-<kb>, keep it as neo4j-<kb>.previous until the new one runs, then remove it, and start the new one as setup-operator does: image <old image> → neo4j:2026.06.0<image note>; the same data folder <data>; no published ports any more (now <ports, or none>), since cypher-shell runs through docker exec; the internal network kb-<kb> with no internet access<network note>; APOC limited to the plugin's procedures; the mounts <other mounts> unchanged; the env keys <carried keys> carried over; the env keys <keys not carried> not carried over, because their values may be credentials, which this setup never reads (set them again yourself if they are needed); <auth note>.`
+   `neo4j-<kb> lacks <list>. Recreate it? I would stop the container neo4j-<kb>, keep it as neo4j-<kb>.previous until the new one runs, then remove it, and start the new one as setup-operator does: image <old image> → neo4j:2026.06.0<image note>; the same data folder <data>; no published ports any more (now <ports, or none>), since cypher-shell runs through docker exec; the internal network kb-<kb> with no internet access<network note>, and no other network (now <other networks, or none>); APOC limited to the plugin's procedures; the mounts <other mounts> unchanged; the env keys <carried keys> carried over; the env keys <keys not carried> not carried over, because their values may be credentials, which this setup never reads (set them again yourself if they are needed); <auth note>.`
 
    `<network note>`: empty when `kb-<kb>` is already internal; otherwise `, which replaces the current kb-<kb> network`. `<image note>`: empty with `<same image>`; otherwise `, which upgrades the store on first start: the old image cannot open it afterwards, and a newer old image's store does not open at all`. An empty list is written `none`.
 
@@ -153,7 +154,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
    5. All of step 5 passed: `docker rm neo4j-<kb>.previous`.
    6. A failure after the rename:
       - Not `<same image>`, and the `docker run -d` of step 5.2 exited 0: the new image may already have upgraded the store, and the old image cannot open it again. Do not roll back. `docker stop -t 60 neo4j-<kb>`, keep both containers, and report: `recreate of neo4j-<kb> failed at step <step>: <reason>. Both containers are kept: neo4j-<kb> (new image, stopped) and neo4j-<kb>.previous (old image), which cannot open the upgraded data. Fix the cause, run docker start neo4j-<kb>, then docker rm neo4j-<kb>.previous.`
-      - Otherwise roll back: `docker rm -f neo4j-<kb>` (always; a `No such container` error is expected), then `docker rename neo4j-<kb>.previous neo4j-<kb>` and `docker start neo4j-<kb>`; when step 3a.7.1b disconnected it, also `docker network connect kb-<kb> neo4j-<kb>` (the network is internal now). The report names the failed step and the settings state: after a successful step 5.1b, `<settings> now holds a NEO4J_PASSWORD that the restored neo4j-<kb> (authentication off) does not use; remove that key before running setup-operator again`; otherwise `<settings>` is as step 4.2 left it.
+      - Otherwise roll back: `docker rm -f neo4j-<kb>` (always; a `No such container` error is expected), then `docker rename neo4j-<kb>.previous neo4j-<kb>` and `docker start neo4j-<kb>`; when step 3a.7.1b disconnected it, also `docker network connect kb-<kb> neo4j-<kb>` (the network is internal now). Never recreate a network without `--internal`. When step 3a.7.1b replaced `kb-<kb>` and that was the old container's only network, the report says: `the restored neo4j-<kb> sits on the internal network kb-<kb>, so its host ports <ports> no longer answer. To get them back, recreate the network without --internal yourself: docker network disconnect kb-<kb> neo4j-<kb>, docker network rm kb-<kb>, docker network create kb-<kb>, docker network connect kb-<kb> neo4j-<kb>.` The report names the failed step and the settings state: after a successful step 5.1b, `<settings> now holds a NEO4J_PASSWORD that the restored neo4j-<kb> (authentication off) does not use; remove that key before running setup-operator again`; otherwise `<settings>` is as step 4.2 left it.
 8. Authentication on and `<password state>` is `absent`: the container's password is not in this project. Never reset it, and never ask for it during this run: the report says, under "to add by hand", `NEO4J_USERNAME and NEO4J_PASSWORD of neo4j-<kb>, into the env of <settings>, after this setup finishes`.
 
 ### 3b. A new container
@@ -169,11 +170,13 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 1. Write `<kb folder>/neo4j.env` with the file tools: the lines of `<scripts>/neo4j.env` exactly (APOC, file import confined to `/import`, the procedure allowlist), followed by the lines a recreate adds (step 3a.7).
 
 2. Merge (section "Merge into the settings") a fragment with:
-   - `env`: `KB_PATH` = `<KB_PATH>`, `NEO4J_SHELL` = `<NEO4J_SHELL>`, `NEO4J_USERNAME` = `neo4j`, `NEO4J_DATABASE` = `neo4j` (when the merge reports a conflict for `NEO4J_DATABASE`, its current value is `<database>` in the query rule below; otherwise `neo4j`); for a new container, or a recreate that turns authentication on, also `NEO4J_PASSWORD` = `__KB_PASSWORD__`, a placeholder that step 5.1 replaces.
-   - `permissions.allow`: the rules of "Allow rules" below.
+   - `env`: `KB_PATH` = `<KB_PATH>`, `NEO4J_SHELL` = `<NEO4J_SHELL>`, `NEO4J_USERNAME` = `neo4j`, `NEO4J_DATABASE` = `neo4j`; for a new container, or a recreate that turns authentication on, also `NEO4J_PASSWORD` = `__KB_PASSWORD__`, a placeholder that step 5.1 replaces.
+   - `replace_env`: `["NEO4J_SHELL"]` when the developer confirmed the store switch of step 2.7; otherwise leave it out. The script replaces only the listed keys among `KB_PATH`, `NEO4J_SHELL`, `NEO4J_USERNAME` and `NEO4J_DATABASE`, and reports `replaced env <key>: was …, now …`.
+   - `permissions.allow`: the rules of "Allow rules" below, except the `<NEO4J_SHELL>` query rule.
    - `permissions.deny`: `Read(/.claude/settings.local.json)`.
 
-   Its `<password state>` is the state from here on.
+   Its `<password state>` is the state from here on. `<database>`: the current value from `conflict env NEO4J_DATABASE: current <value>, …` when the merge printed that line; otherwise `neo4j`.
+3. Merge a second fragment with only `permissions.allow` = the `<NEO4J_SHELL>` query rule, rendered with `<database>`. It now matches the database every query uses.
 
 ### Allow rules
 

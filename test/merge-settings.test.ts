@@ -48,6 +48,13 @@ describe.if(hasPython)("merge-settings.py", () => {
     });
   });
 
+  test("replaces a listed non-secret key only, and says so", () => {
+    writeFileSync(settings(), JSON.stringify({ env: { NEO4J_SHELL: "cypher-shell -a x", NEO4J_PASSWORD: "keep-me" } }));
+    const r = merge({ env: { NEO4J_SHELL: "docker exec y", NEO4J_PASSWORD: "__KB_PASSWORD__" }, replace_env: ["NEO4J_SHELL", "NEO4J_PASSWORD"] });
+    expect(r.out).toBe("replaced env NEO4J_SHELL: was cypher-shell -a x, now docker exec y\nconflict env NEO4J_PASSWORD\npassword: present\n");
+    expect(JSON.parse(readFileSync(settings(), "utf8")).env).toEqual({ NEO4J_SHELL: "docker exec y", NEO4J_PASSWORD: "keep-me" });
+  });
+
   test("never prints a password value", () => {
     writeFileSync(settings(), JSON.stringify({ env: { NEO4J_PASSWORD: "s3cret-value" } }));
     const r = merge({ env: { NEO4J_PASSWORD: "__KB_PASSWORD__" } });

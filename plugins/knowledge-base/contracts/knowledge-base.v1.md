@@ -189,7 +189,7 @@ Reads work from the read-only clone and the manifest alone when Docker, Neo4j or
 ## Isolation
 
 - One Neo4j instance, network, MCP server and local folder per KB, all named by the KB id.
-- The Neo4j container publishes no host port and sits on the internal Docker network `kb-<kb id>`, which has no route outside Docker; `cypher-shell` reaches it through `docker exec`, the MCP server through that network. APOC is limited to the procedures the plugin uses, and file loads to the import folder. A local Neo4j outside Docker binds `127.0.0.1` only.
+- The Neo4j container publishes no host port and sits on the internal Docker network `kb-<kb id>`, which has no route outside Docker; `cypher-shell` reaches it through `docker exec`, the MCP server through that network. APOC is limited to the procedures the plugin uses, and file loads to the import folder. A local Neo4j outside Docker meets the same: Bolt on `127.0.0.1` only, no outbound network access for the Neo4j process, the same procedure allowlist (`dbms.security.procedures.allowlist`), and file loads confined to the import folder.
 - The load refuses a store holding another KB; every query is bound to the KB id.
 - The orchestrator serves only the KB of the project's `KB_PATH`.
 

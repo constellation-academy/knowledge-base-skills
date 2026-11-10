@@ -39,10 +39,14 @@ def main(fragment_path, settings_path):
 
     lines = []
     wanted_env = fragment.get("env", {})
+    replace = set(fragment.get("replace_env", []))
     if wanted_env:
         env = current.setdefault("env", {})
         for key, value in wanted_env.items():
-            if key not in env:
+            if key in replace and key in SHOWN and key in env and env[key] != value:
+                lines.append(f"replaced env {key}: was {env[key]}, now {value}")
+                env[key] = value
+            elif key not in env:
                 env[key] = value
                 lines.append(f"added env {key}")
             elif env[key] == value:
