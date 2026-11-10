@@ -11,11 +11,12 @@ The layout, the env keys and the isolation rules are in the contract, `contracts
 
 ## Rules
 
-- **Reuse, never overwrite.** An existing clone, container, data folder, MCP registration or settings value is checked and reused. Nothing is replaced, removed or recreated without the developer's explicit yes to that exact action, named with its image change, data folder, ports, mounts, env keys and password source.
+- **Reuse, never overwrite.** An existing clone, container, data folder, MCP registration or settings value is checked and reused. Nothing is replaced, removed or recreated without the developer's explicit yes to that exact action, named with its image change, data folder, network, ports, mounts, env keys and password source.
 - **The password is never seen.** The scripts in `<scripts>` generate it inside a throwaway container and put it straight into `<settings>` and the Neo4j data. Inside that container it travels only through files and shell variables. It never appears on a command line or process argument list, in a tool result or in a reply.
 - **`<settings>` is never read in this session.** No file tool, `cat` or Grep opens it. Claude Code would show its content, and it reports later changes to any file a file tool touched, with the new content. Every change goes through `<scripts>/merge-settings.py` in a throwaway container. The script prints only key names, rule texts and non-secret values, never a password.
-- **The deny rule comes first.** Step 1.5 writes `Read(/.claude/settings.local.json)` into `<settings>` before any other step touches the file. It keeps the file tools and `cat` in later sessions from showing the password, whether this setup generated it or the developer added it by hand.
+- **The deny rule comes first.** Step 1.5 writes `Read(/.claude/settings.local.json)` into `<settings>` before any other step touches the file. It keeps the Read tool and plain `cat` in later sessions from showing the password, whether this setup generated it or the developer added it by hand. It is best effort: some compound shell forms get past it.
 - Never touch a container, network, MCP server or folder named for another KB id.
+- **No way out of the store.** `neo4j-<kb>` publishes no host port and sits only on `kb-<kb>`, a Docker network created with `--internal`, which has no route outside Docker. `cypher-shell` reaches it through `docker exec`, and the MCP server joins the same network. `neo4j.env` limits APOC to the procedures and functions the plugin's queries and the MCP server use, and file loads to `/import`.
 - Every path is the host's absolute native path: `/Users/ana/.kb/example/repo` on macOS, `/home/ana/.kb/example/repo` on Linux, `C:\Users\ana\.kb\example\repo` on Windows. In JSON, a backslash is written `\\` and a double quote `\"`.
 
 ## Names
@@ -44,7 +45,7 @@ The layout, the env keys and the isolation rules are in the contract, `contracts
 Write `<fragment>` with the file tools: a JSON object with the `env` keys and the `permissions` lists (`allow`, `deny`) to add. Create `<project>/.claude` if it is missing (Commands per OS), so Docker does not create it as another user; `.claude` is a protected path, so this one command always asks the developer, and a headless session cannot run it. Then run, unchanged:
 
 ```
-docker run --rm -v "<scripts>:/s:ro" -v "<home>/.kb:/f" -v "<project>/.claude:/w" --entrypoint python <mcp image> /s/merge-settings.py /f/setup-fragment.json /w/settings.local.json
+docker run --rm --network none -v "<scripts>:/s:ro" -v "<home>/.kb:/f" -v "<project>/.claude:/w" --entrypoint python <mcp image> /s/merge-settings.py /f/setup-fragment.json /w/settings.local.json
 ```
 
 - A missing `<settings>` is created with mode 600 and the owner of `<project>/.claude`. An existing one keeps its owner and other keys and gets mode 600.
@@ -60,7 +61,6 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 | home folder | `printenv HOME` | `[Environment]::GetFolderPath('UserProfile')` |
 | create folders | `mkdir -p "<a>" "<b>"` | `New-Item -ItemType Directory -Force -Path "<a>", "<b>"` |
 | remove a folder this run created | `rm -rf "<path>"` | `Remove-Item -Recurse -Force "<path>"` |
-| is a port in use | `lsof -nP -iTCP:<port> -sTCP:LISTEN`: output means in use | `Get-NetTCPConnection -State Listen -LocalPort <port>`: output means in use |
 | folder permissions | `chmod 755 "<kb folder>" "<import>" "<queries>"` | none: Windows has no mode bits; Docker Desktop shares the folders with the container user, and `<settings>` stays protected by the user profile's ACL |
 
 ## 1. Check the project
@@ -89,7 +89,9 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 
 ## 3. Docker and the Neo4j container
 
-1. Network: `docker network inspect --format '{{.Name}}' kb-<kb>` fails: `docker network create kb-<kb>`.
+1. Network: `docker network inspect --format '{{.Internal}}' kb-<kb>`.
+   - It fails (no such network): `docker network create --internal kb-<kb>`.
+   - It prints `false`: the network has internet access. With a container `neo4j-<kb>` (step 3a), that is part of what step 3a.4 collects. Without one, `docker network rm kb-<kb>` and `docker network create --internal kb-<kb>`; the network holds no data, and the report names the change. `docker network rm` fails because another container is attached: reply its error line and stop.
 2. `docker ps -a --filter 'name=^neo4j-<kb>' --format '{{.Names}}'` lists the KB's containers. Only the exact names `neo4j-<kb>` and `neo4j-<kb>.previous` count; any other name in the list belongs to another KB id and is ignored.
    - `neo4j-<kb>` and `neo4j-<kb>.previous` both: an earlier recreate kept both after a failure on a new image (step 3a.7.6). Reply `neo4j-<kb> (new image, stopped) and neo4j-<kb>.previous (old image) both exist from an earlier recreate whose step <step, if the report named it> failed. Fix that cause and run docker start neo4j-<kb>, then docker rm neo4j-<kb>.previous once it runs; the old image cannot open the upgraded data.` and stop.
    - Only `neo4j-<kb>.previous`: an earlier recreate stopped between renaming the old container and finishing. Ask `An earlier run left the old container as neo4j-<kb>.previous (stopped). Restore it as neo4j-<kb> and continue?` Yes: `docker rename neo4j-<kb>.previous neo4j-<kb>`, then step 3a. Anything else: stop.
@@ -103,7 +105,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
    docker inspect --format '{{.State.Status}} {{.Config.Image}} {{.HostConfig.RestartPolicy.Name}} {{json .HostConfig.PortBindings}} {{range .Mounts}}{{.Source}}={{.Destination}} {{end}}' neo4j-<kb>
    ```
 
-   `<old image>` is `.Config.Image`, the tag shown in the question; `<old image id>` is `docker inspect --format '{{.Image}}' neo4j-<kb>`, the image the container actually runs. `<same image>` holds when `<old image id>` equals `docker image inspect --format '{{.Id}}' <image>` (after `docker pull <image>`); `<bolt>` and `<http>` are the host ports bound to `7687/tcp` and `7474/tcp`; `<data>` is the source mounted at `/data`.
+   `<old image>` is `.Config.Image`, the tag shown in the question; `<old image id>` is `docker inspect --format '{{.Image}}' neo4j-<kb>`, the image the container actually runs. `<same image>` holds when `<old image id>` equals `docker image inspect --format '{{.Id}}' <image>` (after `docker pull <image>`); `<ports>` are its published ports, from `.HostConfig.PortBindings`; `<data>` is the source mounted at `/data`.
 
    The names of its env keys, never their values, and those its image sets itself, and whether authentication is off, by `NEO4J_AUTH=none` or `NEO4J_dbms_security_auth__enabled=false` in any letter case (prints `auth-none` or nothing):
 
@@ -115,18 +117,18 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 
    `<own keys>` are the container's keys that its image does not set.
 2. Not `running`: `docker start neo4j-<kb>`.
-3. `docker exec neo4j-<kb> printenv NEO4J_PLUGINS NEO4J_apoc_import_file_enabled NEO4J_server_directories_import`.
-4. Collect what needs a new container: `NEO4J_PLUGINS` without `apoc`; `NEO4J_apoc_import_file_enabled` not `true`; `NEO4J_server_directories_import` not `/import`; no mount of `<import>` at `/import`; a port bound to an address other than `127.0.0.1` (an empty `HostIp`, `0.0.0.0` and `::` all count as other).
+3. `docker exec neo4j-<kb> printenv NEO4J_PLUGINS NEO4J_apoc_import_file_enabled NEO4J_server_directories_import NEO4J_dbms_security_procedures_allowlist`.
+4. Collect what needs a new container: `NEO4J_PLUGINS` without `apoc`; `NEO4J_apoc_import_file_enabled` not `true`; `NEO4J_server_directories_import` not `/import`; `NEO4J_dbms_security_procedures_allowlist` not equal to its line in `<scripts>/neo4j.env`; no mount of `<import>` at `/import`; any published port (`<ports>` not empty); the network `kb-<kb>` not internal (step 3.1 printed `false`).
 5. Nothing collected: fix in place what can be. Restart policy not `unless-stopped`: `docker update --restart unless-stopped neo4j-<kb>`. `docker network inspect --format '{{range .Containers}}{{.Name}} {{end}}' kb-<kb>` lacks `neo4j-<kb>`: `docker network connect kb-<kb> neo4j-<kb>`. Continue at step 3a.8.
 6. Something collected and no `/data` mount: the data sits inside the container and a new container would lose it. Reply `neo4j-<kb> lacks <list> and keeps its data inside the container; recreating it would lose the data. Export what you need, remove it yourself, and run setup-operator again.` and stop.
 7. Something collected: sort the `<own keys>` with the script, which reads only the names:
 
    ```
-   docker run --rm -v "<scripts>:/s:ro" --entrypoint python <mcp image> /s/sort-env-keys.py <own keys>
+   docker run --rm --network none -v "<scripts>:/s:ro" --entrypoint python <mcp image> /s/sort-env-keys.py <own keys>
    ```
 
    Each line is `<group> <key>`:
-   - `own`: set by the new container itself (`NEO4J_PLUGINS`, `NEO4J_apoc_import_file_enabled`, `NEO4J_server_directories_import`, from `neo4j.env`).
+   - `own`: set by the new container itself, from `neo4j.env` (`NEO4J_PLUGINS`, `NEO4J_apoc_import_file_enabled`, `NEO4J_server_directories_import`, `NEO4J_dbms_security_procedures_allowlist`).
    - `skip`: not carried over. The key contains, ignoring case, `PASS`, `PWD`, `SECRET`, `TOKEN`, `KEY`, `CRED`, `AUTH` or `URL`, or has `URI` as a whole word between `_`, `.` or `-`. Its value may be a credential, and carrying a value means reading it, so it is never read. `NEO4J_AUTH` and `NEO4J_dbms_security_auth__enabled` are among them; the auth note covers what they did.
    - `carry`: carried over. Read each value on its own, `docker inspect --format '{{range .Config.Env}}{{if eq (index (split . `=`) 0) `<key>`}}{{.}}{{end}}{{end}}' neo4j-<kb>`, and add the printed `<key>=<value>` line to `neo4j.env` (step 4.1).
 
@@ -136,21 +138,22 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 
    Then ask exactly this, and accept only an explicit yes (or, with authentication off, `keep auth off`) to it:
 
-   `neo4j-<kb> lacks <list>. Recreate it? I would stop the container neo4j-<kb>, keep it as neo4j-<kb>.previous until the new one runs, then remove it, and start the new one as setup-operator does: image <old image> → neo4j:2026.06.0<image note>; the same data folder <data>; the same ports 127.0.0.1:<bolt> and 127.0.0.1:<http>; the mounts <other mounts> unchanged; the env keys <carried keys> carried over; the env keys <keys not carried> not carried over, because their values may be credentials, which this setup never reads (set them again yourself if they are needed); <auth note>.`
+   `neo4j-<kb> lacks <list>. Recreate it? I would stop the container neo4j-<kb>, keep it as neo4j-<kb>.previous until the new one runs, then remove it, and start the new one as setup-operator does: image <old image> → neo4j:2026.06.0<image note>; the same data folder <data>; no published ports any more (now <ports, or none>), since cypher-shell runs through docker exec; the internal network kb-<kb> with no internet access<network note>; APOC limited to the plugin's procedures; the mounts <other mounts> unchanged; the env keys <carried keys> carried over; the env keys <keys not carried> not carried over, because their values may be credentials, which this setup never reads (set them again yourself if they are needed); <auth note>.`
 
-   `<image note>`: empty with `<same image>`; otherwise `, which upgrades the store on first start: the old image cannot open it afterwards, and a newer old image's store does not open at all`. An empty list is written `none`.
+   `<network note>`: empty when `kb-<kb>` is already internal; otherwise `, which replaces the current kb-<kb> network`. `<image note>`: empty with `<same image>`; otherwise `, which upgrades the store on first start: the old image cannot open it afterwards, and a newer old image's store does not open at all`. An empty list is written `none`.
 
    Authentication off, and `<password state>` is `present`: before asking, reply `<settings> already holds a NEO4J_PASSWORD, but neo4j-<kb> runs without authentication; remove that key from <settings>, then run setup-operator again.` and stop; nothing is changed.
 
    No, or anything else: skip steps 5 and 6 and the index part of step 7; the report names `<list>`. Otherwise:
    1. `docker stop -t 60 neo4j-<kb>` (time for a clean shutdown), then `docker rename neo4j-<kb> neo4j-<kb>.previous`. The dot keeps the name apart from every KB id, which has none. From here on, any failure or stop before step 3a.7.5, a merge `error:` of step 4.2 included, goes to step 3a.7.6.
+   1b. `kb-<kb>` not internal: `docker network disconnect kb-<kb> neo4j-<kb>.previous` when it is attached, then `docker network rm kb-<kb>` and `docker network create --internal kb-<kb>`.
    2. `keep auth off`: add `NEO4J_AUTH=none` to `neo4j.env` (step 4.1) and leave `NEO4J_PASSWORD` out of the fragment (step 4.2).
    3. Authentication was off and the answer was yes: step 4 with the placeholder in the fragment, then step 5.1b; otherwise step 4.
-   4. Step 5.2 to 5.5 with these `<data>`, `<bolt>`, `<http>`; each further mount is passed again as `-v "<source>:<destination>"`.
+   4. Step 5.2 to 5.5 with this `<data>`; each further mount is passed again as `-v "<source>:<destination>"`.
    5. All of step 5 passed: `docker rm neo4j-<kb>.previous`.
    6. A failure after the rename:
       - Not `<same image>`, and the `docker run -d` of step 5.2 exited 0: the new image may already have upgraded the store, and the old image cannot open it again. Do not roll back. `docker stop -t 60 neo4j-<kb>`, keep both containers, and report: `recreate of neo4j-<kb> failed at step <step>: <reason>. Both containers are kept: neo4j-<kb> (new image, stopped) and neo4j-<kb>.previous (old image), which cannot open the upgraded data. Fix the cause, run docker start neo4j-<kb>, then docker rm neo4j-<kb>.previous.`
-      - Otherwise roll back: `docker rm -f neo4j-<kb>` (always; a `No such container` error is expected), then `docker rename neo4j-<kb>.previous neo4j-<kb>` and `docker start neo4j-<kb>`. The report names the failed step and the settings state: after a successful step 5.1b, `<settings> now holds a NEO4J_PASSWORD that the restored neo4j-<kb> (authentication off) does not use; remove that key before running setup-operator again`; otherwise `<settings>` is as step 4.2 left it.
+      - Otherwise roll back: `docker rm -f neo4j-<kb>` (always; a `No such container` error is expected), then `docker rename neo4j-<kb>.previous neo4j-<kb>` and `docker start neo4j-<kb>`; when step 3a.7.1b disconnected it, also `docker network connect kb-<kb> neo4j-<kb>` (the network is internal now). The report names the failed step and the settings state: after a successful step 5.1b, `<settings> now holds a NEO4J_PASSWORD that the restored neo4j-<kb> (authentication off) does not use; remove that key before running setup-operator again`; otherwise `<settings>` is as step 4.2 left it.
 8. Authentication on and `<password state>` is `absent`: the container's password is not in this project. Never reset it, and never ask for it during this run: the report says, under "to add by hand", `NEO4J_USERNAME and NEO4J_PASSWORD of neo4j-<kb>, into the env of <settings>, after this setup finishes`.
 
 ### 3b. A new container
@@ -159,21 +162,14 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
    - `<password state>` is `present`: an earlier run of this setup set the password in `<data>` and `<settings>`, and its container did not start. Continue at step 3b.3 and skip step 5.1; if the first read then fails to log in, the report says `remove <data> and the NEO4J_PASSWORD key of <settings>, then run setup-operator again`.
    - Otherwise reply `<data> holds Neo4j data but no container neo4j-<kb> exists; a new container with a new password cannot open it. Remove <data> if the data is not needed, or tell me how to continue.` and stop.
 2. `<password state>` is `present` and `<data>` is empty: `<settings>` holds a password for a container and data that are gone. Reply `<settings> holds a NEO4J_PASSWORD, but neo4j-<kb> and its data no longer exist. Remove the NEO4J_PASSWORD key from <settings> yourself, then run setup-operator again.` and stop.
-3. Ports: list every container's bindings, stopped ones included: `docker ps -aq`; when it prints ids, `docker inspect --format '{{.Name}} {{json .HostConfig.PortBindings}}' <ids>`. `<bolt>` = `7687+n`, `<http>` = `7474+n` for the smallest `n` = 0, 1, … where neither port is bound by a container nor in use (Commands per OS).
-4. Create `<data>` and `<queries>` (Commands per OS); on macOS and Linux run the `chmod 755` line.
+3. Create `<data>` and `<queries>` (Commands per OS); on macOS and Linux run the `chmod 755` line.
 
 ## 4. Write the project settings
 
-1. Write `<kb folder>/neo4j.env` with the file tools, exactly these lines, followed by the lines a recreate adds (step 3a.7):
-
-   ```
-   NEO4J_PLUGINS=["apoc"]
-   NEO4J_apoc_import_file_enabled=true
-   NEO4J_server_directories_import=/import
-   ```
+1. Write `<kb folder>/neo4j.env` with the file tools: the lines of `<scripts>/neo4j.env` exactly (APOC, file import confined to `/import`, the procedure allowlist), followed by the lines a recreate adds (step 3a.7).
 
 2. Merge (section "Merge into the settings") a fragment with:
-   - `env`: `KB_PATH` = `<KB_PATH>`, `NEO4J_SHELL` = `<NEO4J_SHELL>`, `NEO4J_USERNAME` = `neo4j`, `NEO4J_DATABASE` = `neo4j`; for a new container, or a recreate that turns authentication on, also `NEO4J_PASSWORD` = `__KB_PASSWORD__`, a placeholder that step 5.1 replaces.
+   - `env`: `KB_PATH` = `<KB_PATH>`, `NEO4J_SHELL` = `<NEO4J_SHELL>`, `NEO4J_USERNAME` = `neo4j`, `NEO4J_DATABASE` = `neo4j` (when the merge reports a conflict for `NEO4J_DATABASE`, its current value is `<database>` in the query rule below; otherwise `neo4j`); for a new container, or a recreate that turns authentication on, also `NEO4J_PASSWORD` = `__KB_PASSWORD__`, a placeholder that step 5.1 replaces.
    - `permissions.allow`: the rules of "Allow rules" below.
    - `permissions.deny`: `Read(/.claude/settings.local.json)`.
 
@@ -194,7 +190,7 @@ Bash(git -C "<clone>" symbolic-ref --short HEAD)
 Bash(git -C "<clone>" fetch --quiet origin)
 Bash(git -C "<clone>" merge --ff-only --quiet origin/<default>)
 Bash(git -C "<clone>" log -1 --format=%cr HEAD)
-Bash(<NEO4J_SHELL> -d neo4j --format plain -f /import/queries/*)
+Bash(<NEO4J_SHELL> -d <database> --format plain -f /import/queries/*)
 Bash(rm "<import>/kb-export.json")
 Bash(mv "<import>/kb-export.json.tmp" "<import>/kb-export.json")
 Read(//<plugins folder>/**)
@@ -211,7 +207,7 @@ mcp__kb-<kb>__*
 - `<plugins folder>`: the parent folder of the plugin root (the plugin root is two folders above this skill's directory). The skills read their shared files there (`runtime.md`, the contract, the query files), and the rule covers every installed plugin version.
 - `//<plugins folder>/**` and `//<kb folder>/**` are absolute paths without their leading `/`, after `//`; on Windows in the form `//c/Users/…` with forward slashes. The KB folder is readable only; it is not an additional working directory, so no permission mode, `acceptEdits` included, edits anything under it beyond the `Edit` rules above.
 - Every `Bash` rule but one is an exact command. The `Edit` rules admit only text no program runs as code: `.cypher` files in the query folder, which only `cypher-shell` reads; Markdown documents in a worktree; and the writer's message files next to the worktrees. A script, `package.json`, a `.git` file or a companion change of another type in a worktree prompts, with its content shown, before it is written. So a later approved command, such as `pr.pre_commit`, runs only code the developer has seen.
-- Accepted risk, the one wildcard rule: the trailing `*` of the `<NEO4J_SHELL>` rule admits any further `cypher-shell` arguments. Together with the `Edit` rule on the query folder, a session can write and run any Cypher, APOC calls included, against this KB's own store, which holds only the rebuildable index. An inserted `-a <host>` would also send this store's Neo4j user and password to that host. The store itself listens on `127.0.0.1` only.
+- Accepted risk, the one wildcard rule: the trailing `*` of the `<NEO4J_SHELL>` rule admits any further `cypher-shell` arguments. Together with the `Edit` rule on the query folder, a session can write and run any Cypher against this KB's own store, which holds only the rebuildable index. Nothing leaves the machine that way: the store has no network route outside Docker, so `LOAD CSV` and APOC loads from a URL fail, APOC outside the allowlist is not loaded, file loads stay in `/import`, and an inserted `-a <host>` reaches only containers on `kb-<kb>`.
 - Not pre-allowed, so these prompt, unless the developer's own permission mode, rules or hooks allow them:
   - the export command, once per reindex, with its `cd` into the clone;
   - `pr.pre_commit`, with its `cd` into the worktree;
@@ -228,13 +224,13 @@ A new or recreated container only. A reused container (step 3a.5) skips to step 
 1. New container only, with `<password state>` `placeholder`: one throwaway container generates the password, sets it as Neo4j's initial password in `<data>`, and replaces the placeholder in `<settings>`:
 
    ```
-   docker run --rm -v "<data>:/data" -v "<project>/.claude:/w" -v "<scripts>:/s:ro" --entrypoint sh <image> /s/new-password.sh
+   docker run --rm --network none -v "<data>:/data" -v "<project>/.claude:/w" -v "<scripts>:/s:ro" --entrypoint sh <image> /s/new-password.sh
    ```
 
    1b. A recreate that turns authentication on, with `<password state>` `placeholder`: instead, a throwaway container of the old container's own image (`<old image id>`, kept locally while `neo4j-<kb>.previous` exists) starts Neo4j on `<data>` with authentication off, sets a newly generated password with `ALTER USER`, replaces the placeholder in `<settings>`, and stops. The old image leaves the store format as it is, so the rollback of step 3a.7 still opens it:
 
    ```
-   docker run --rm -e NEO4J_AUTH=none -v "<data>:/data" -v "<project>/.claude:/w" -v "<scripts>:/s:ro" --entrypoint bash <old image id> /s/reset-password.sh
+   docker run --rm --network kb-<kb> -e NEO4J_AUTH=none -v "<data>:/data" -v "<project>/.claude:/w" -v "<scripts>:/s:ro" --entrypoint bash <old image id> /s/reset-password.sh
    ```
 
    `<password state>` `present` never reaches step 5.1 or 5.1b: steps 3a.7, 3b.1 and 3b.2 have already stopped or skipped it.
@@ -245,7 +241,7 @@ A new or recreated container only. A reused container (step 3a.5) skips to step 
 2. Start Neo4j:
 
    ```
-   docker run -d --name neo4j-<kb> --restart unless-stopped --network kb-<kb> -p 127.0.0.1:<bolt>:7687 -p 127.0.0.1:<http>:7474 -v "<data>:/data" -v "<import>:/import" --env-file "<kb folder>/neo4j.env" <image>
+   docker run -d --name neo4j-<kb> --restart unless-stopped --network kb-<kb> -v "<data>:/data" -v "<import>:/import" --env-file "<kb folder>/neo4j.env" <image>
    ```
 
 3. Wait until Bolt answers, up to three minutes (the first start installs APOC):
@@ -293,7 +289,7 @@ Relay both replies verbatim in the report: a permission denial or a provider mes
 KB <kb> for <project>
 clone: <clone> (<new | reused>) at <first 7 characters of HEAD>
 KB_PATH: <KB_PATH>
-neo4j: neo4j-<kb> (<new | reused | recreated | not set up: reason>), 127.0.0.1:<bolt> bolt, 127.0.0.1:<http> http, data <data>
+neo4j: neo4j-<kb> (<new | reused | recreated | not set up: reason>), internal network kb-<kb>, no published ports, data <data>
 mcp: kb-<kb> (<registered | kept | not set up: reason>)
 settings: <settings> (<added entries, or "unchanged">)
 conflicts: <each conflict line of the merges, or "none">

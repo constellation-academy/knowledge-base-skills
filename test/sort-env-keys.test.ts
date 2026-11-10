@@ -16,10 +16,13 @@ const sort = (...keys: string[]) =>
 
 describe.if(hasPython)("sort-env-keys.py", () => {
   test("keys the new container sets itself", () => {
-    expect(sort("NEO4J_PLUGINS", "NEO4J_apoc_import_file_enabled", "NEO4J_server_directories_import")).toEqual({
+    expect(
+      sort("NEO4J_PLUGINS", "NEO4J_apoc_import_file_enabled", "NEO4J_server_directories_import", "NEO4J_dbms_security_procedures_allowlist"),
+    ).toEqual({
       NEO4J_PLUGINS: "own",
       NEO4J_apoc_import_file_enabled: "own",
       NEO4J_server_directories_import: "own",
+      NEO4J_dbms_security_procedures_allowlist: "own",
     });
   });
 

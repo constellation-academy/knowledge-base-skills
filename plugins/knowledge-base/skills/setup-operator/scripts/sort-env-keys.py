@@ -1,7 +1,12 @@
 import re
 import sys
 
-SET_BY_NEW = {"NEO4J_PLUGINS", "NEO4J_apoc_import_file_enabled", "NEO4J_server_directories_import"}
+SET_BY_NEW = {
+    "NEO4J_PLUGINS",
+    "NEO4J_apoc_import_file_enabled",
+    "NEO4J_server_directories_import",
+    "NEO4J_dbms_security_procedures_allowlist",
+}
 SUBSTRINGS = ("PASS", "PWD", "SECRET", "TOKEN", "KEY", "CRED", "AUTH", "URL")
 WORDS = ("URI",)
 

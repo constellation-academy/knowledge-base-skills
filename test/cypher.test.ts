@@ -6,7 +6,8 @@ import { join } from "node:path";
 setDefaultTimeout(120_000);
 
 const CONTAINER = "neo4j-kbtest";
-const PORT = "7699";
+const NETWORK = "kbtest-net";
+const ENV_FILE = join(import.meta.dir, "../plugins/knowledge-base/skills/setup-operator/scripts/neo4j.env");
 const PASS = "kbtest-pass-1";
 const IMAGE = "neo4j:2026.06.0";
 const CYPHER_DIR = join(import.meta.dir, "../plugins/knowledge-base/cypher");
@@ -155,15 +156,16 @@ const asDoc = (d: Doc): Omit<Doc, "body"> => {
 
 async function startNeo4j() {
   Bun.spawnSync(["docker", "rm", "-f", CONTAINER]);
+  Bun.spawnSync(["docker", "network", "rm", NETWORK]);
+  const net = Bun.spawnSync(["docker", "network", "create", "--internal", NETWORK]);
+  if (net.exitCode !== 0) throw new Error(net.stderr.toString());
   chmodSync(IMPORT, 0o755);
   mkdirSync(join(IMPORT, "queries"), { recursive: true });
   cpSync(CYPHER_DIR, join(IMPORT, "queries"), { recursive: true });
   const up = Bun.spawnSync([
-    "docker", "run", "-d", "--name", CONTAINER, "-p", `127.0.0.1:${PORT}:7687`,
+    "docker", "run", "-d", "--name", CONTAINER, "--network", NETWORK,
     "-e", `NEO4J_AUTH=neo4j/${PASS}`,
-    "-e", 'NEO4J_PLUGINS=["apoc"]',
-    "-e", "NEO4J_apoc_import_file_enabled=true",
-    "-e", "NEO4J_server_directories_import=/import",
+    "--env-file", ENV_FILE,
     "-v", `${IMPORT}:/import`,
     IMAGE,
   ]);
@@ -185,6 +187,7 @@ beforeAll(startNeo4j, 240_000);
 
 afterAll(() => {
   Bun.spawnSync(["docker", "rm", "-f", CONTAINER]);
+  Bun.spawnSync(["docker", "network", "rm", NETWORK]);
   rmSync(IMPORT, { recursive: true, force: true });
   rmSync(CLONE_DIR, { recursive: true, force: true });
   rmSync(MARKER_DIR, { recursive: true, force: true });
@@ -432,6 +435,41 @@ describe("guards", () => {
     } finally {
       await cypher("DROP CONSTRAINT kbtest_title;");
     }
+  });
+});
+
+describe("container confinement", () => {
+  const runFile = async (name: string, text: string) => {
+    writeFileSync(join(IMPORT, "queries", `${name}.cypher`), text);
+    return query(name);
+  };
+
+  test("publishes no host port and sits on an internal network", () => {
+    const ports = Bun.spawnSync(["docker", "inspect", "--format", "{{json .HostConfig.PortBindings}}", CONTAINER]).stdout.toString().trim();
+    expect(["{}", "null"]).toContain(ports);
+    const internal = Bun.spawnSync(["docker", "network", "inspect", "--format", "{{.Internal}}", NETWORK]).stdout.toString().trim();
+    expect(internal).toBe("true");
+  });
+
+  test("LOAD CSV from a URL fails through the allowed query command", async () => {
+    const r = await runFile("egress-csv", "LOAD CSV FROM 'https://example.com/' AS row RETURN count(row) AS n;\n");
+    expect(r.code).not.toBe(0);
+  });
+
+  test("an APOC URL load fails through the allowed query command", async () => {
+    const r = await runFile("egress-apoc", "CALL apoc.load.json('https://example.com/') YIELD value RETURN value;\n");
+    expect(r.code).not.toBe(0);
+  });
+
+  test("an APOC procedure outside the allowlist is not loaded", async () => {
+    const r = await runFile("not-allowed", "CALL apoc.create.node(['X'], {}) YIELD node RETURN node;\n");
+    expect(r.code).not.toBe(0);
+    expect(r.stderr).toMatch(/apoc\.create\.node/);
+  });
+
+  test("a file outside /import cannot be loaded", async () => {
+    const r = await runFile("outside-import", "CALL apoc.load.json('file:///etc/passwd') YIELD value RETURN value;\n");
+    expect(r.code).not.toBe(0);
   });
 });
 

@@ -20,7 +20,9 @@ This contract binds every knowledge base (KB) that uses the `knowledge-base` plu
 | Import folder | `~/.kb/<kb id>/import`, mounted at `/import` in the container |
 | Query files | `~/.kb/<kb id>/import/queries/<name>.cypher` |
 | Export file | `~/.kb/<kb id>/import/kb-export.json` |
-| Neo4j settings | `~/.kb/<kb id>/neo4j.env`: APOC, file import and the import folder, passed with `--env-file`; no credentials |
+| Neo4j settings | `~/.kb/<kb id>/neo4j.env`: APOC, file import, the import folder and the procedure allowlist, passed with `--env-file`; no credentials |
+| Writer worktrees | `~/.kb/<kb id>/worktrees/<name>`, with the writer's message files next to them as `<name>.<file>` |
+| Setup staging | `~/.kb/.incoming` (a clone before its KB id is known) and `~/.kb/setup-fragment.json` (settings to merge); both are removed by the setup |
 | Neo4j container | `neo4j-<kb id>` |
 | Docker network | `kb-<kb id>` |
 | MCP server | `kb-<kb id>` |
@@ -187,7 +189,7 @@ Reads work from the read-only clone and the manifest alone when Docker, Neo4j or
 ## Isolation
 
 - One Neo4j instance, network, MCP server and local folder per KB, all named by the KB id.
-- Neo4j ports are bound to `127.0.0.1` only.
+- The Neo4j container publishes no host port and sits on the internal Docker network `kb-<kb id>`, which has no route outside Docker; `cypher-shell` reaches it through `docker exec`, the MCP server through that network. APOC is limited to the procedures the plugin uses, and file loads to the import folder. A local Neo4j outside Docker binds `127.0.0.1` only.
 - The load refuses a store holding another KB; every query is bound to the KB id.
 - The orchestrator serves only the KB of the project's `KB_PATH`.
 
