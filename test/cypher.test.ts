@@ -69,18 +69,16 @@ const sample = (): ExportDoc => ({
 const lit = (v: string | number | null): string => {
   if (v === null) return "null";
   if (typeof v === "number") return String(v);
+  const u = (n: number) => `\\u${n.toString(16).padStart(4, "0")}`;
   let out = "";
   for (const ch of v) {
     const c = ch.codePointAt(0)!;
     if (ch === "\\") out += "\\\\";
     else if (c >= 0x20 && c <= 0x7e && ch !== "'" && ch !== '"') out += ch;
-    else if (c > 0xffff) {
-      const h = Math.floor((c - 0x10000) / 0x400) + 0xd800;
-      const l = ((c - 0x10000) % 0x400) + 0xdc00;
-      out += `\\u${h.toString(16).padStart(4, "0")}\\u${l.toString(16).padStart(4, "0")}`;
-    } else out += `\\u${c.toString(16).padStart(4, "0")}`;
+    else if (c > 0xffff) out += u(Math.floor((c - 0x10000) / 0x400) + 0xd800) + u(((c - 0x10000) % 0x400) + 0xdc00);
+    else out += u(c);
   }
-  return `'${out}'`;
+  return `"${out}"`;
 };
 
 async function spawn(cmd: string[], stdin = "", env: Record<string, string> = {}): Promise<Run> {
@@ -106,6 +104,13 @@ async function query(name: string, params: Record<string, string | number | null
   const args = Object.entries(params).flatMap(([k, v]) => ["-P", `${k} => ${lit(v)}`]);
   return spawn([...SHELL, "-d", "neo4j", "--format", "plain", "-f", `/import/queries/${name}.cypher`, ...args]);
 }
+
+const QUERY_PREFIX = "docker exec -i -e NEO4J_USERNAME -e NEO4J_PASSWORD neo4j-kbtest cypher-shell -d neo4j --format plain -f";
+
+const queryVia = (shell: string, name: string, params: Record<string, string | number | null>) => {
+  const args = Object.entries(params).map(([k, v]) => `-P '${k} => ${lit(v)}'`);
+  return spawn([shell, "-c", `${QUERY_PREFIX} /import/queries/${name}.cypher ${args.join(" ")}`]);
+};
 
 const rows = (r: Run): any[] => {
   expect(r.stderr).toBe("");
@@ -285,6 +290,21 @@ describe("search", () => {
     expect(rows(await query("search", { kb: "t", query: "nonexistentterm", limit: 5 }))).toEqual([]);
   });
 
+  test("takes plain text: Lucene special characters and operators never error", async () => {
+    const e = sample();
+    e.docs.push(doc({ path: "cpp.md", title: "C++ notes", body: "about a/b paths and (parentheses)" }));
+    rows(await load(e));
+    for (const q of ['C++', "(draft", 'say "hello', "a/b", "x: y", "foo AND", "NOT", "OR zebrafish", "!-~*?^[]{}|&\\", "   ", ""]) {
+      const r = await query("search", { kb: "t", query: q, limit: 5 });
+      expect(r.stderr).toBe("");
+      expect(r.code).toBe(0);
+    }
+    expect(rows(await query("search", { kb: "t", query: "C++ (draft", limit: 5 })).map((x) => x.path)).toEqual(["cpp.md"]);
+    expect(rows(await query("search", { kb: "t", query: "a/b", limit: 5 })).map((x) => x.path)).toContain("cpp.md");
+    expect(rows(await query("search", { kb: "t", query: "zebrafish OR", limit: 5 })).map((x) => x.path)).toEqual(["adr/ADR-0001-x.md"]);
+    expect(rows(await query("search", { kb: "t", query: "", limit: 5 }))).toEqual([]);
+  });
+
   test("limits the number of hits and cuts the excerpt", async () => {
     const e: ExportDoc = {
       kb: "t",
@@ -328,6 +348,35 @@ describe("guards", () => {
     const r = await load(sample());
     expect(r.code).not.toBe(0);
     expect(plain(await cypher("MATCH (n) RETURN count(n) AS c;"))).toEqual([["1"]]);
+  });
+
+  test("refuses documents without a KBIndex stamp", async () => {
+    await cypher("CREATE (:Doc {kb: 't', path: 'x.md', title: 'X'});");
+    const r = await load(sample());
+    expect(r.code).not.toBe(0);
+    expect(r.stderr).toMatch(/without a KBIndex stamp/);
+    expect(plain(await cypher("MATCH (n) RETURN count(n) AS c;"))).toEqual([["1"]]);
+  });
+
+  test("refuses fields of the wrong type", async () => {
+    rows(await load(sample()));
+    const bad: Record<string, unknown>[] = [
+      { type: 3 },
+      { status: ["x"] },
+      { tags: "a" },
+      { tags: ["a", 1] },
+      { refs: [null] },
+      { parts: {} },
+      { extra: [1] },
+      { extra: "x" },
+      { body: 5 },
+    ];
+    for (const patch of bad) {
+      const r = await load({ kb: "t", sha: "bad", docs: [{ ...doc({ path: "a.md" }), ...patch }] });
+      expect(r.code).not.toBe(0);
+      expect(r.stderr).toMatch(/must be/);
+    }
+    expect(rows(await query("status", { kb: "t" }))).toEqual([{ kb: "t", sha: "abc123", docs: 5 }]);
   });
 
   test("refuses empty export and keeps the old graph", async () => {
@@ -383,7 +432,7 @@ describe("hostile strings", () => {
       "line1\nline2\r\n\ttab, comma",
       "MATCH (n) DETACH DELETE n; RETURN 1 //",
       "$kb `tick` {braces} \\u0041 \\n literal",
-      "Äpfel Öl Übung ß émoji 😀 \u0001   end",
+      "Äpfel Öl Übung ß émoji 😀 \u0001 \u2028 end",
       '", NULL, "x',
       "CALL apoc.util.validate(true, 'x', []) :commit",
     ];
@@ -418,6 +467,38 @@ describe("hostile strings", () => {
     expect(rows(await query("list", { kb: "t", type: hostile[0] }))).toEqual([]);
     expect(plain(await cypher("MATCH (n) RETURN count(n) AS c;"))).toEqual([[String(hostile.length + 1)]]);
   });
+
+  test("survives the contract's shell form in bash and zsh", async () => {
+    const hostile = [
+      `q"uote 'single' back\\slash trailing\\`,
+      "line1\nline2\r\n\ttab, comma",
+      "x; echo PWNED $(echo PWNED) `echo PWNED` && rm -rf / # |",
+      "MATCH (n) DETACH DELETE n; RETURN 1 //",
+      "Äpfel Öl Übung ß émoji 😀 \u2028 end",
+      "1 + 1",
+      "null",
+      "toString(1)",
+      "kb => 't'",
+    ];
+    const e: ExportDoc = {
+      kb: "t",
+      sha: "shell",
+      docs: hostile.map((h) => doc({ path: `s/${h}.md`, type: "adr", title: h, body: h })),
+    };
+    rows(await load(e));
+    for (const sh of ["bash", "zsh"]) {
+      for (const d of e.docs) {
+        const r = await queryVia(sh, "doc", { kb: "t", path: d.path });
+        expect(r.stdout).not.toContain("PWNED\n");
+        expect(rows(r)).toEqual([asDoc(d)]);
+      }
+      const l = await queryVia(sh, "list", { kb: "t", type: "adr" });
+      expect(rows(l).length).toBe(hostile.length);
+      const s = await queryVia(sh, "search", { kb: "t", query: "Äpfel", limit: 5 });
+      expect(rows(s).map((x) => x.title)).toEqual([hostile[4]]);
+    }
+    expect(plain(await cypher("MATCH (n) RETURN count(n) AS c;"))).toEqual([[String(hostile.length + 1)]]);
+  });
 });
 
 const git = (cwd: string, ...args: string[]) => {
@@ -427,38 +508,19 @@ const git = (cwd: string, ...args: string[]) => {
 };
 
 describe("real KB", () => {
-  let ready = false;
-  let exp: ExportDoc;
+  if (!REAL_REPO) console.warn("real KB test skipped: set KB_TEST_REAL_REPO to the git URL of a KB repository");
   const repo = join(CLONE_DIR, "repo");
 
-  beforeAll(() => {
-    if (!REAL_REPO) {
-      console.warn("real KB test skipped: set KB_TEST_REAL_REPO to a git URL of a KB repository");
-      return;
-    }
-    try {
-      Bun.spawnSync(["git", "clone", "--filter=blob:none", "-c", "core.autocrlf=false", REAL_REPO, repo]);
-      if (!existsSync(join(repo, "scripts/kb-export.ts"))) throw new Error("no scripts/kb-export.ts in the clone");
-      const out = Bun.spawnSync(["bun", "scripts/kb-export.ts"], { cwd: repo });
-      if (out.exitCode !== 0) throw new Error(out.stderr.toString());
-      exp = JSON.parse(out.stdout.toString());
-      const text = (p: string) => git(repo, "show", `HEAD:${p}`);
-      for (const d of exp.docs) {
-        d.body = d.path.endsWith("/") ? d.parts.map(text).join("\n\n") : text(d.path);
-      }
-      ready = true;
-    } catch (err) {
-      console.warn(`real KB test skipped: KB_TEST_REAL_REPO not usable (${(err as Error).message})`);
-    }
-  }, 180_000);
+  test.skipIf(!REAL_REPO)("loads the export and answers status, list, doc and search", async () => {
+    const clone = Bun.spawnSync(["git", "clone", "--filter=blob:none", "-c", "core.autocrlf=false", REAL_REPO!, repo]);
+    if (clone.exitCode !== 0) throw new Error(`git clone failed: ${clone.stderr.toString()}`);
+    if (!existsSync(join(repo, "scripts/kb-export.ts"))) throw new Error("no scripts/kb-export.ts in the clone");
+    const out = Bun.spawnSync(["bun", "scripts/kb-export.ts"], { cwd: repo });
+    if (out.exitCode !== 0) throw new Error(`export failed: ${out.stderr.toString()}`);
+    const exp: ExportDoc = JSON.parse(out.stdout.toString());
+    const text = (p: string) => git(repo, "show", `HEAD:${p}`);
+    for (const d of exp.docs) d.body = d.path.endsWith("/") ? d.parts.map(text).join("\n\n") : text(d.path);
 
-  const real = (name: string, fn: () => Promise<void>) =>
-    test(name, async () => {
-      if (!ready) return;
-      await fn();
-    });
-
-  real("loads the export and answers status, list, doc and search", async () => {
     rows(await load(exp, exp.kb));
     expect(rows(await query("status", { kb: exp.kb }))).toEqual([{ kb: exp.kb, sha: exp.sha, docs: exp.docs.length }]);
 
@@ -474,5 +536,5 @@ describe("real KB", () => {
     const term = glossary.body!.match(/[A-Za-z]{8,}/)![0];
     const hits = rows(await query("search", { kb: exp.kb, query: term, limit: 50 }));
     expect(hits.map((h) => h.path)).toContain(glossary.path);
-  });
+  }, 180_000);
 });

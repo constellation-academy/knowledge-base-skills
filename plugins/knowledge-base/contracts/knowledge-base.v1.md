@@ -25,7 +25,7 @@ This contract binds every knowledge base (KB) that uses the `knowledge-base` plu
 | MCP server | `kb-<kb id>` |
 
 - Every path is written as an absolute native path of the host OS (Windows, macOS or Linux).
-- File permissions are set where the OS supports them and are never relied on.
+- File permissions are set where the OS supports them. The import folder and the query files in it must be readable by the Neo4j container user, or Neo4j does not start; `setup-operator` makes them so.
 
 ## Project configuration
 
@@ -128,9 +128,10 @@ The export command writes one JSON object to `{out}`:
 - Fixed queries live as `.cypher` files in the plugin. `update-operator` copies them to the query folder, so no command names the plugin's versioned install path.
 - A query runs as `<NEO4J_SHELL> -d <NEO4J_DATABASE> --format plain -f <query file> -P '<name> => <literal>'`. The query file is `/import/queries/<name>.cypher` with Docker and the host's query-file path with a local Neo4j. No shell redirection: PowerShell has no `<`.
 - Values reach Cypher only as `-P` parameters, never spliced into query text.
+- A `-P` literal is a double-quoted Cypher string: `\` becomes `\\`, and `"`, `'` and every character outside printable ASCII become `\uXXXX`, so no raw quote or non-ASCII character reaches the command line. `null` and numbers are bare.
 - Every query filters by and checks the KB id.
 - Every query returns one column `json`, one JSON object per row (`apoc.convert.toJson`).
-- No fixed query returns `body`; document text always comes from the clone's files.
+- No fixed query returns a document's `body`; document text always comes from the clone's files. `search` returns only a short excerpt of at most 200 characters of the body next to path, title and score.
 - Fixed queries: `fulltext`, `load`, `status`, `doc`, `list`, `related`, `supersede-chain`, `search`.
 - Ad-hoc exploration uses the MCP server `kb-<kb id>` (`mcp/neo4j-cypher`, read-only). Without it, exploration uses the fixed queries `search` and `related`.
 

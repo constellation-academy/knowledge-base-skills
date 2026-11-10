@@ -3,4 +3,4 @@ CALL apoc.util.validate(unstamped > 0 OR any(k IN kbs WHERE k <> $kb), 'refusing
 MATCH (d:Doc {kb: $kb})
 WHERE $type IS NULL OR d.type = $type
 WITH d ORDER BY d.path
-RETURN apoc.convert.toJson({path: d.path, type: d.type, title: d.title, description: d.description, status: d.status, tags: d.tags, refs: [(d)-[:REFERENCES]->(r:Doc) | r.path], supersedes: [(d)-[:SUPERSEDES]->(s:Doc) | s.path], parts: d.parts, extra: apoc.convert.fromJsonMap(d.extra)}) AS json;
+RETURN apoc.convert.toJson({path: d.path, type: d.type, title: d.title, description: d.description, status: d.status, tags: d.tags, refs: COLLECT { MATCH (d)-[:REFERENCES]->(r:Doc) RETURN r.path ORDER BY r.path }, supersedes: COLLECT { MATCH (d)-[:SUPERSEDES]->(s:Doc) RETURN s.path ORDER BY s.path }, parts: d.parts, extra: apoc.convert.fromJsonMap(d.extra)}) AS json;
