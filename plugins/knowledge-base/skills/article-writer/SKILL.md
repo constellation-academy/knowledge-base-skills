@@ -80,17 +80,25 @@ From here on, the KB root is `<worktree>/<kb_root>` (the manifest's `kb_root`; `
 
 ### 4. Check, commit, push, pull request
 
-1. The manifest has `pr.pre_commit`: run it in the worktree root as `cd "<worktree>"; <pre_commit>`, allowing up to 10 minutes. It exits non-zero: return `pre_commit failed: <pre_commit>` followed by its output, run step 5's cleanup, and stop. Files it changes are not committed unless they are the document or a `companion_changes` path.
-2. Write the commit message to `<kb folder>/worktrees/<name>.commit-message` with the file tools, then:
+1. The manifest has `pr.pre_commit`: run it in the worktree root as `cd "<worktree>"; <pre_commit>`, allowing up to 10 minutes. It exits non-zero: return `pre_commit failed: <pre_commit>` followed by its output, run step 5's cleanup, and stop. The files it changes, such as regenerated indexes, are committed with the document.
+2. List every change in the worktree with `git -C "<worktree>" status --porcelain --untracked-files=all`; each line ends in a path relative to the worktree root (for a rename, both paths). With `kb_root` other than `.`, a path outside `<kb_root>/`: return `pre_commit changed files outside the KB root: <paths>`, run step 5's cleanup, and stop.
+3. Stage every change under the KB root, never outside it, and list what is staged:
 
    ```
-   git -C "<worktree>" add -- "<document path relative to <worktree>>" "<each companion path relative to <worktree>>"
+   git -C "<worktree>" add -A -- "<kb_root>"
+   git -C "<worktree>" diff --cached --name-only
+   ```
+
+   `<kb_root>` is the manifest's `kb_root` (`.` for the whole repository). The listed paths are `<staged paths>` for the report.
+4. Write the commit message to `<kb folder>/worktrees/<name>.commit-message` with the file tools, then:
+
+   ```
    git -C "<worktree>" commit --quiet --file "<kb folder>/worktrees/<name>.commit-message"
    git -C "<worktree>" push --quiet -u origin "<branch>"
    ```
 
-3. The pull request description: `pr_body` when given; else the manifest's `pr.template` (relative to the KB root) filled in for this change; else `Adds <path>: <summary>` or `Updates <path>: <summary>`. It carries no AI attribution.
-4. Read the remote with `git -C "<clone>" remote get-url origin`, and open the pull request by `pr.host`:
+5. The pull request description: `pr_body` when given; else the manifest's `pr.template` (relative to the KB root) filled in for this change; else `Adds <path>: <summary>` or `Updates <path>: <summary>`. It carries no AI attribution.
+6. Read the remote with `git -C "<clone>" remote get-url origin`, and open the pull request by `pr.host`:
 
 **github**: `<host>`, `<owner>` and `<repo>` come from the remote URL (`https://<host>/<owner>/<repo>.git` or `git@<host>:<owner>/<repo>.git`). Write `<kb folder>/worktrees/<name>.pull-request.json` as `{"title": …, "head": "<branch>", "base": "<default>", "body": …}`, then:
 
@@ -123,7 +131,7 @@ The message files next to the worktree stay; the next run with the same branch o
 
 ### 6. Report
 
-First line: the pull request link, or `create the pull request: <link>` for the fallback. Then the document path and the branch.
+First line: the pull request link, or `create the pull request: <link>` for the fallback. Then the document path, the branch, and `<staged paths>`, one per line.
 
 ## Common mistakes
 
