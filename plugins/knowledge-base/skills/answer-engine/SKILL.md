@@ -5,7 +5,7 @@ description: Use when a skill or seat already holds a question and needs it answ
 
 # Answer from the KB
 
-Answers one question from the KB's documents and cites each document it uses. The KB is the only source: an answer never fills a gap from general knowledge, and a KB that says nothing on the question is reported as silent. Writes nothing.
+Answers one question from the KB's documents and cites each document it uses. When a command is denied or fails, follow "Denied or failed commands" in `../update-operator/runtime.md`, relative to this skill's directory. The KB is the only source: an answer never fills a gap from general knowledge, and a KB that says nothing on the question is reported as silent. Writes nothing.
 
 ## Direct invocation
 

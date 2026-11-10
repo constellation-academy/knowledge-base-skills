@@ -7,7 +7,7 @@ description: Use when a document in the project's knowledge base (KB) must be cr
 
 Creates or updates one document in a fresh worktree from the read-only clone and opens a pull request against `<default>`. The clone's own checkout is never touched, and nothing is merged.
 
-Mechanics (locating the KB, shell rules, the names `<kb>`, `<default>`, `<kb_root>`, `<clone>`, `<kb folder>`) are in `../update-operator/runtime.md`, relative to this skill's directory. Follow them exactly. The manifest fields and placeholder rules are in the contract, `contracts/knowledge-base.v1.md` at the plugin root, section "Manifest".
+Mechanics (locating the KB, shell rules, the names `<kb>`, `<default>`, `<kb_root>`, `<clone>`, `<kb folder>`) are in `../update-operator/runtime.md`, relative to this skill's directory. Follow them exactly. When a command is denied or fails, follow "Denied or failed commands" there. For this skill the rule matters most: a git command that is denied stops the write at that step, with the cleanup of step 5 where the step says so; never drop `-c core.quotePath=false`, skip the staged-file listing or the outside-root check, or push without them. The manifest fields and placeholder rules are in the contract, `contracts/knowledge-base.v1.md` at the plugin root, section "Manifest".
 
 ## Inputs
 
@@ -53,7 +53,7 @@ The contract's section "Routes" lists the same inputs for team writers.
    - Pull request title: `pr.title_pattern`, or the commit subject when absent.
 5. Settle the frontmatter now, from the clone (read only):
    - `frontmatter` given: it is the frontmatter, as given.
-   - Otherwise, for `create`, read the `template` file at `<KB root>/<template>` and give every key of `required_frontmatter` a value: `type` is the article type, `title` the title, a key the requester gave a value for takes that value, and a key that only describes the document's own content (such as a description or tags) is derived from `content`. Any other key without a value is a missing input. For `update`, the same holds for a required key the document lacks.
+   - Otherwise, for `create`, read the `template` file at `<KB root>/<template>` and give every key of `required_frontmatter` a value: `type` is the article type, `title` the title, a key the requester gave a value for takes that value, and a key that only describes the document's own content is derived from `content`, never asked for: `description` is one sentence saying what the document covers; `tags` are a few lower-case words, taken from the tags existing documents of the KB already use (their frontmatter, read in the clone) wherever one fits, and new words only where none does. Ask for a derived key only when `content` gives nothing to derive it from. Any other key without a value is a missing input. For `update`, the same holds for a required key the document lacks.
 6. Validate the inputs (see "An invalid input"). The document's own path is known here for `update`; for `create` it is checked again in step 3.
 7. `git -C "<clone>" ls-remote --heads origin "<branch>"` prints a line: the branch already exists on the remote, for example from an earlier change to the same document. Try `<branch>-2`, then `<branch>-3`, and so on, with the same command; the first name it prints nothing for is `<branch>` from here on. Never reuse or overwrite a remote branch.
 8. `git -C "<clone>" rev-parse --verify --quiet "refs/heads/<branch>"` succeeds, or `<worktree>` (step 2) exists: an earlier run left this branch or worktree behind after a failed push. Return `an earlier run left <branch> in <worktree>; push it or remove it, then run again` and stop; never delete it unasked.
@@ -137,7 +137,7 @@ The message files next to the worktree stay; the next run with the same branch o
 
 ### 6. Report
 
-First line: the pull request link, or `create the pull request: <link>` for the fallback. Then the document path, the branch, and `<staged paths>`, one per line.
+First line: the pull request link, or `create the pull request: <link>` for the fallback. Then the document path, the branch, and `<staged paths>`, one per line. Then every frontmatter value this skill derived rather than received, as `derived <key>: <value>`.
 
 ## Common mistakes
 
@@ -147,5 +147,7 @@ First line: the pull request link, or `create the pull request: <link>` for the 
 | Branching from local `HEAD` or `<default>` | Branch from `origin/<default>` after update-operator fetched it |
 | Putting the commit subject, title or description on the command line | Write them to files and pass the files |
 | Inventing a ticket id or a decision value | Ask, or return `needs:` |
+| Asking for a description or tags the content already answers | Derive them, reuse the KB's existing tags, and list them as `derived` in the report |
+| Dropping a flag, skipping a check or running another command after a denial | Stop at that step and report the exact command and the reason |
 | Pushing to `<default>`, merging, or adding reviewers | Push the branch, open the pull request, stop |
 | Adding a `Co-Authored-By` trailer or a "Generated with" line | No AI attribution anywhere |

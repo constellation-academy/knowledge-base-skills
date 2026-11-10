@@ -14,7 +14,7 @@ description: Use when a skill needs named resources or documents from the projec
 
 Returns the KB's content, never an answer. Answering is `knowledge-base:answer-engine`'s job.
 
-Mechanics (locating the KB, names such as `<KB root>` and `<queries>`, running a query, reading its output) are in `../update-operator/runtime.md`, relative to this skill's directory. Follow them exactly.
+Mechanics (locating the KB, names such as `<KB root>` and `<queries>`, running a query, reading its output) are in `../update-operator/runtime.md`, relative to this skill's directory. Follow them exactly. When a command is denied or fails, follow "Denied or failed commands" there.
 
 ## 1. Update first
 
