@@ -273,7 +273,16 @@ A new or recreated container only. A reused container (step 3a.5) skips to step 
 
 The new `env` and the MCP server reach only new sessions, so the check runs in fresh sessions started in `<project>`:
 
-1. `claude -p "Use the knowledge-base:access-orchestrator skill: fetch: kb <first resource name of the manifest>"`, allowing up to 10 minutes. The read finds an empty index and loads it.
+1. The read finds an empty index and loads it, which runs the manifest's export. The export is not pre-allowed, and a headless session cannot ask, so this one session gets an explicit one-time grant for exactly the two commands update-operator runs (its step 6.2):
+   - `<commit>`: `git -C "<clone>" rev-parse HEAD`; `<export command>`: the manifest's `export.cmd` with `{ref}` replaced by `"<commit>"` and `{out}` by `"<import>/kb-export.json.tmp"`, as update-operator renders it.
+   - `<export command>` contains `*`, `;`, `&`, `|`, `)`, a backtick or a line break: it cannot be granted exactly. Run the read without a grant; the report says `the first read needs the export, which prompts: run "fetch: kb <first resource name>" once in an interactive session in <project>`.
+   - Otherwise, allowing up to 10 minutes:
+
+     ```
+     claude -p "Use the knowledge-base:access-orchestrator skill: fetch: kb <first resource name of the manifest>" --allowedTools 'Bash(cd "<clone>")' 'Bash(<export command>)'
+     ```
+
+     The grant holds for that one session only, and it names the export with its commit, so it covers no other export run. When `origin/<default>` moved since `<commit>`, the export line differs and that session is refused it; run the read again interactively.
 2. With the MCP server registered: `claude -p "Use the knowledge-base:access-orchestrator skill: explore: kb <title of any document of the fetched resource>"`. Its reply must contain `explore via MCP kb-<kb>`; `explore via fixed queries` means the session did not reach the MCP server.
 
 Relay both replies verbatim in the report: a permission denial or a provider message there is the only reason shown when the index stays empty.
