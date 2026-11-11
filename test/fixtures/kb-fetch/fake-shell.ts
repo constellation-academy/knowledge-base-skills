@@ -1,5 +1,5 @@
 // Fake cypher-shell: answers status/doc/list from index.json next to this file.
-// Env: FAKE_FAIL=ERR_x -> exit 1 with that first stderr line; FAKE_STATUS=empty|norow.
+// Env: FAKE_INDEX=<path> -> read that index instead of index.json; FAKE_FAIL=ERR_x -> exit 1 with that first stderr line; FAKE_STATUS=empty|norow.
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
@@ -29,7 +29,7 @@ if (format !== "plain") fail("ERR_NOT_PLAIN");
 if (!file.endsWith(".cypher")) fail("ERR_NO_QUERY_FILE");
 const name = basename(file, ".cypher");
 
-const index = JSON.parse(readFileSync(join(import.meta.dir, "index.json"), "utf8"));
+const index = JSON.parse(readFileSync(process.env.FAKE_INDEX ?? join(import.meta.dir, "index.json"), "utf8"));
 const same = params.kb === index.kb;
 const row = (d: any) => ({
   path: d.path, type: d.type, title: process.env.FAKE_TITLE ?? d.title ?? d.path, description: d.description ?? null,

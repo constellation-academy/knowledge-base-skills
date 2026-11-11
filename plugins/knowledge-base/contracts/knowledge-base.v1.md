@@ -204,18 +204,19 @@ A machine reader (a script, not a skill) reads KB text through the index without
 
   | Code | Exit | Meaning |
   |---|---|---|
-  | `config` | 2 | `KB_PATH`, `NEO4J_SHELL` or `NEO4J_DATABASE` unset, no manifest, another contract major |
+  | `config` | 2 | `KB_PATH`, `NEO4J_SHELL` or `NEO4J_DATABASE` unset, no manifest, another contract major, or no items given (`no items`) |
   | `index` | 3 | a query fails, Neo4j is unreachable, or `status` returns no `KBIndex` row |
-  | `unresolved` | 4 | unknown resource name, a path not in the index, a resolved file missing or unreadable, or a resource resolving to zero documents |
+  | `unresolved` | 4 | unknown resource name, a path not in the index, a resolved file missing, unreadable or outside the KB root, or a resource resolving to zero documents |
+  | `internal` | 1 | an unexpected error in the reader itself; `detail` is its first line, `item` is null |
 
-- Freshness is the caller's job: it runs `knowledge-base:update-operator` before `kb-fetch` and reads that skill's report (section "Freshness").
+- Freshness is the caller's job: it runs `knowledge-base:update-operator` before `kb-fetch` and reads that skill's report (section "Freshness"). `update-operator` may return one of the "Locate the KB" stop messages instead of the report block; a reply without the report's `commit:` and `index:` lines means "not updated", and the caller does not run `kb-fetch`.
 
 ## Freshness
 
 - `update-operator` runs before every read: `git fetch` in the clone, then a fast-forward to `origin/<default_branch>`.
 - It compares `KBIndex.sha` with the clone's commit. On a mismatch or an empty store it creates the full-text index if missing, runs the export into the export file, and runs the load.
 - Offline, it continues on the clone's current commit and says how old that commit is.
-- The plugin's skills call `update-operator`, and so does a machine reader that follows the section "Machine reads", before it runs `kb-fetch`.
+- The plugin's skills call `update-operator`, and so does a machine reader that follows the section "Machine reads", before it runs `kb-fetch`. `update-operator` may return one of the "Locate the KB" stop messages instead of the report block below; a machine reader treats any reply without the report's `commit:` and `index:` lines as "not updated" and does not run `kb-fetch`.
 - Its report is part of this contract; callers parse it, so its four lines never change within a major. `update-operator` returns exactly:
 
 ```
@@ -257,9 +258,7 @@ docs: <docs, or "-" when the index is unavailable>
 
 Reads work from the read-only clone and the manifest alone when Docker, Neo4j or the index is missing or unreachable.
 
-- `file` resource: that file.
-- `folder` resource: the folder's Markdown files except `index.md`, in file-name order.
-- `type` resource: the Markdown files anywhere under the KB root whose frontmatter `type` is one of the resource's types, excluding the template files named in `article_types`.
+- Items resolve as in the "Index unavailable" column of section "Resolution".
 - Relationship queries (`related`, `supersede-chain`) and exploration are unavailable.
 - The reader says once that the index is missing; it never fails its caller for that reason.
 - `answer-engine` reports that it needs the KB index and names `knowledge-base:setup-operator`.

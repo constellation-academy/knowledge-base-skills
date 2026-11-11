@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeAll } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { escapeLiteral, splitShell, main, loadConfig, parseRows, runQuery } from "../plugins/knowledge-base/scripts/kb-fetch";
@@ -43,6 +43,41 @@ describe("shell forms", () => {
     expect(cfgOnly.queryDir).toBe("/import/queries");
     const h = loadConfig(env({ NEO4J_SHELL: "cypher-shell -a bolt://127.0.0.1:7687" }));
     expect(h.queryDir).toBe(join(root, "fx", "import", "queries"));
+  });
+  test("cfg.docker: first word docker and second exec, whitespace-tolerant", () => {
+    expect(loadConfig(env({ NEO4J_SHELL: "docker exec -i neo4j-fx cypher-shell" })).docker).toBe(true);
+    expect(loadConfig(env({ NEO4J_SHELL: "  docker \t exec  -i neo4j-fx cypher-shell" })).docker).toBe(true);
+    expect(loadConfig(env({ NEO4J_SHELL: "docker run -i x cypher-shell" })).docker).toBe(false);
+    expect(loadConfig(env({ NEO4J_SHELL: "cypher-shell -a bolt://127.0.0.1:7687" })).docker).toBe(false);
+  });
+  test("docker form end to end: argv shape asserted by a fake docker first on PATH", () => {
+    const bin = join(root, "fakebin");
+    mkdirSync(bin, { recursive: true });
+    const script = `#!/bin/sh
+[ "$1" = exec ] && [ "$2" = -i ] && [ "$3" = -e ] && [ "$4" = NEO4J_USERNAME ] && [ "$5" = -e ] && [ "$6" = NEO4J_PASSWORD ] && [ "$7" = neo4j-fx ] && [ "$8" = cypher-shell ] || { echo "ERR_DOCKER_ARGV_HEAD $*" >&2; exit 1; }
+[ "$9" = -d ] && [ "\${10}" = neo4j ] && [ "\${11}" = --format ] && [ "\${12}" = plain ] && [ "\${13}" = -f ] || { echo "ERR_DOCKER_ARGV_FLAGS $*" >&2; exit 1; }
+case "\${14}" in /import/queries/status.cypher|/import/queries/doc.cypher|/import/queries/list.cypher) ;; *) echo "ERR_DOCKER_QUERY_FILE \${14}" >&2; exit 1;; esac
+[ "\${15}" = -P ] || { echo "ERR_DOCKER_NO_P" >&2; exit 1; }
+{ printf '%s\\n' "\$@"; echo ---; } >> "${join(root, "docker-argv.log")}"
+shift 8
+exec ${BUN} ${join(FIX, "fake-shell.ts")} "$@"
+`;
+    writeFileSync(join(bin, "docker"), script, { mode: 0o755 });
+    const e = env({ NEO4J_SHELL: "docker exec -i -e NEO4J_USERNAME -e NEO4J_PASSWORD neo4j-fx cypher-shell", PATH: `${bin}:${process.env.PATH}` });
+    const r = main(["glossary", "notes"], e);
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+    const calls = readFileSync(join(root, "docker-argv.log"), "utf8").split("---\n").filter(Boolean).map((c) => c.split("\n").slice(0, -1));
+    const find = (q: string) => calls.filter((c) => c[13] === `/import/queries/${q}.cypher`);
+    // every -P is one argv element: <name> => '<escaped literal>' (or a bare null/number)
+    expect(find("status")).toHaveLength(1);
+    expect(find("status")[0].slice(14)).toEqual(["-P", "kb => 'fx'"]);
+    expect(find("doc").map((c) => c.slice(14))).toEqual([
+      ["-P", "kb => 'fx'", "-P", "path => 'glossary.md'"],
+      ["-P", "kb => 'fx'", "-P", "path => 'notes/'"],
+    ]);
+    expect(find("list").map((c) => c.slice(14))).toEqual([["-P", "kb => 'fx'", "-P", "type => null"]]);
+    expect(JSON.parse(r.stdout).items.map((i: any) => i.item)).toEqual(["glossary", "notes"]);
   });
 });
 
@@ -171,6 +206,68 @@ describe("resolution and output", () => {
     expect(r.stdout).toBe("");
     expect(err(r).detail).toContain("glossary.md");
   });
+  test("assembled folder whose part is missing on disk -> 4 naming the path", () => {
+    const d = join(root, "partmiss", "fx", "repo");
+    cpSync(kbPath, d, { recursive: true });
+    rmSync(join(d, "guide/02-usage.md"));
+    const r = main(["guide"], env({ KB_PATH: d }));
+    expect(r.code).toBe(4);
+    expect(r.stdout).toBe("");
+    expect(err(r)).toMatchObject({ error: "unresolved", item: "guide" });
+    expect(err(r).detail).toContain("guide/02-usage.md");
+  });
+  test("list failure while resolving a plain folder -> 3", () => {
+    const shell = join(root, "flaky2.sh");
+    writeFileSync(shell, `#!/bin/sh\ncase "$*" in *list.cypher*) echo ERR_LIST >&2; exit 1;; esac\nexec ${SHELL} "$@"\n`, { mode: 0o755 });
+    const r = main(["notes"], env({ NEO4J_SHELL: shell }));
+    expect(r.code).toBe(3);
+    expect(r.stdout).toBe("");
+    expect(err(r).error).toBe("index");
+    expect(err(r).detail).toContain("ERR_LIST");
+  });
+  test("path resolving outside the KB root -> 4 (dotdot, absolute, symlink)", () => {
+    const d = join(root, "esc", "fx", "repo");
+    cpSync(kbPath, d, { recursive: true });
+    writeFileSync(join(root, "esc", "fx", "secret.md"), "SECRET");
+    writeFileSync(join(root, "esc", "outside.md"), "SECRET");
+    symlinkSync(join(root, "esc", "outside.md"), join(d, "link.md"));
+    const idx = JSON.parse(readFileSync(join(FIX, "index.json"), "utf8"));
+    const abs = join(root, "esc", "outside.md");
+    for (const p of ["../secret.md", abs, "link.md"]) idx.docs.push({ path: p, type: "note", parts: [] });
+    const ip = join(root, "esc", "index.json");
+    writeFileSync(ip, JSON.stringify(idx));
+    for (const p of ["../secret.md", abs, "link.md"]) {
+      const r = main([p], env({ KB_PATH: d, FAKE_INDEX: ip }));
+      expect(r.code).toBe(4);
+      expect(r.stdout).toBe("");
+      expect(err(r)).toMatchObject({ error: "unresolved", item: p });
+    }
+    // sanity: an ordinary path in the same index still reads
+    expect(main(["glossary"], env({ KB_PATH: d, FAKE_INDEX: ip })).code).toBe(0);
+  });
+  test("KB root reached through a symlink still reads documents", () => {
+    const real = join(root, "symreal", "repo");
+    cpSync(kbPath, real, { recursive: true });
+    const linked = join(root, "symlinked", "fx");
+    mkdirSync(linked, { recursive: true });
+    symlinkSync(real, join(linked, "repo"));
+    const o = ok(["glossary", "guide"], env({ KB_PATH: join(linked, "repo") }));
+    expect(paths(o, 0)).toEqual(["glossary.md"]);
+    expect(paths(o, 1)).toEqual(["guide/01-intro.md", "guide/02-usage.md"]);
+    expect(o.items[0].documents[0].text).toBe(readFileSync(join(kbPath, "glossary.md"), "utf8"));
+  });
+  test("kb_root other than '.' reads documents under the KB root", () => {
+    const clone = join(root, "nested", "fx", "repo");
+    const d = join(clone, "knowledge");
+    mkdirSync(clone, { recursive: true });
+    cpSync(kbPath, d, { recursive: true });
+    const m = JSON.parse(readFileSync(join(d, "kb-manifest.json"), "utf8"));
+    writeFileSync(join(d, "kb-manifest.json"), JSON.stringify({ ...m, kb_root: "knowledge" }));
+    const o = ok(["glossary", "notes/a.md", "guide"], env({ KB_PATH: d }));
+    expect(paths(o, 0)).toEqual(["glossary.md"]);
+    expect(paths(o, 1)).toEqual(["notes/a.md"]);
+    expect(paths(o, 2)).toEqual(["guide/01-intro.md", "guide/02-usage.md"]);
+  });
   test("resource with zero documents -> 4", () => {
     const d = join(root, "zero", "fx", "repo");
     cpSync(kbPath, d, { recursive: true });
@@ -216,5 +313,27 @@ describe("resolution and output", () => {
     const out = await new Response(p.stdout).text();
     expect(await p.exited).toBe(0);
     expect(JSON.parse(out).items[0].documents[0].text.length).toBe(300_000);
+  });
+});
+
+describe("unexpected errors and empty argv", () => {
+  test("no items -> config, exit 2, detail 'no items'", () => {
+    const r = main([], env());
+    expect(r.code).toBe(2);
+    expect(r.stdout).toBe("");
+    expect(err(r)).toEqual({ error: "config", detail: "no items", item: null });
+  });
+  test("non-FetchError -> one internal JSON line, exit 1, no stdout", () => {
+    // an env accessor that throws a plain Error: a deterministic non-FetchError inside main
+    const e = env();
+    Object.defineProperty(e, "NEO4J_DATABASE", { get() { throw new Error("boom\nsecond line"); }, enumerable: true });
+    const r = main(["glossary"], e);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toBe("");
+    expect(r.stderr.trim().split("\n")).toHaveLength(1);
+    const out = err(r);
+    expect(out.error).toBe("internal");
+    expect(out.item).toBeNull();
+    expect(out.detail).toBe("boom");
   });
 });

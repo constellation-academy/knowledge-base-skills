@@ -54,7 +54,7 @@ describe("contract", () => {
 
   test("contract allows an external machine reader to call update-operator", () => {
     const s = section(contract, "## Freshness");
-    expect(s).not.toMatch(/Only the plugin's skills call `update-operator`\.\s*$/);
+    expect(s).not.toMatch(/Only the plugin's skills call `update-operator`\.\s*$/m);
     expect(s).toContain('a machine reader that follows the section "Machine reads"');
     expect(contract).not.toContain("(fetch and index) is internal");
   });

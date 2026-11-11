@@ -30,7 +30,7 @@ Then read the manifest at `<KB root>/kb-manifest.json`.
 
 Resolve each item to an ordered list of documents. Paths are relative to `<KB root>`; read each document's file with the file tools and return its full text, frontmatter included.
 
-Resolution is fixed by the contract's section "Resolution" (`../../contracts/knowledge-base.v1.md`, relative to this skill's directory): its table, its rules and its error messages. Follow its "Index available" column when the index is available and its "Index unavailable" column otherwise.
+Resolution is fixed by the contract's section "Resolution" (`../../contracts/knowledge-base.v1.md`, relative to this skill's directory): its table, its rules and its error messages. Follow its "Index available" column when the index is available and its "Index unavailable" column otherwise: for the whole fetch when the index is unavailable, and for a single item when its `list` or `doc` query fails or `doc` returns no row or no `parts` (as the contract's Resolution rules say).
 
 Output:
 
