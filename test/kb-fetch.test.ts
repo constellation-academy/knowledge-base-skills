@@ -19,10 +19,11 @@ const err = (r: { stderr: string }) => JSON.parse(r.stderr);
 
 describe("escapeLiteral", () => {
   test("escapes per contract", () => {
-    expect(escapeLiteral("C:\\temp")).toBe('"C:\\\\temp"');
-    expect(escapeLiteral("it's")).toBe('"it\\u0027s"');
-    expect(escapeLiteral('Café "fast"')).toBe('"Caf\\u00e9 \\u0022fast\\u0022"');
-    expect(escapeLiteral("😀")).toBe('"\\ud83d\\ude00"');
+    expect(escapeLiteral("C:\\temp")).toBe("'C:\\u005ctemp'");
+    expect(escapeLiteral("it's")).toBe("'it\\u0027s'");
+    expect(escapeLiteral('Café "fast"')).toBe("'Caf\\u00e9 \\u0022fast\\u0022'");
+    expect(escapeLiteral("$HOME `x`")).toBe("'\\u0024HOME \\u0060x\\u0060'");
+    expect(escapeLiteral("😀")).toBe("'\\ud83d\\ude00'");
     expect(escapeLiteral(null)).toBe("null");
     expect(escapeLiteral(10)).toBe("10");
   });

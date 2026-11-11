@@ -1,11 +1,11 @@
 ---
 name: setup-operator
-description: Use when a developer wants the project's knowledge base (KB) set up, checked or repaired on this machine — "set up the KB", "set up the knowledge base", "connect this project to our KB", "run setup-operator" — or when a knowledge-base skill reported that knowledge-base:setup-operator is needed. Operator: clones the KB repository read-only, starts or reuses the KB's Neo4j and its MCP server in Docker, and writes the project's local KB settings; never changes the KB repository, another project or another KB's container.
+description: Use when a developer wants the project's knowledge base (KB) set up, checked or repaired on this machine — "set up the KB", "set up the knowledge base", "connect this project to our KB", "run setup-operator" — or when a knowledge-base skill reported that knowledge-base:setup-operator is needed. Operator: clones the KB repository read-only, starts or reuses the KB's Neo4j and its MCP server in Docker, writes the project's local KB settings, then loads the index and checks that it is searchable; never changes the KB repository, another project or another KB's container.
 ---
 
 # Set up the KB for this project
 
-Sets up one KB for the current project, once per project and machine: the read-only clone, the KB's Neo4j in Docker, the read-only Neo4j MCP server, and the project's local settings. Then a first read in a fresh session loads the index.
+Sets up one KB for the current project, once per project and machine: the read-only clone, the KB's Neo4j in Docker, the read-only Neo4j MCP server, and the project's local settings. Then fresh sessions load the index and check that it holds the clone's commit and answers a search through the MCP server; the setup is done only when those checks pass.
 
 The layout, the env keys and the isolation rules are in the contract, `contracts/knowledge-base.v1.md` at the plugin root (two folders above this skill's directory), sections "Local layout", "Project configuration" and "Isolation". The shell rules in `../update-operator/runtime.md` (section "Shell rules") apply to every command here, with two exceptions: the few lines in "Commands per OS" below, and the text inside single quotes that the host shell does not run: Docker `--format` and `--filter` literals (`{{…}}`, `^…$`) and the script passed to `bash -c` inside a container. When a command is denied or fails where this skill names no outcome, follow "Denied or failed commands" there: stop and report the command and the reason.
 
@@ -66,7 +66,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 ## 1. Check the project
 
 1. Get `<home>`. Run `git --version` and `claude --version`; either fails: reply `setup-operator needs git and the claude CLI on PATH.` and stop.
-2. `docker version --format '{{.Server.Version}}'` fails: Docker is missing or not running. This setup then writes nothing to `<settings>` and skips steps 1.4, 1.5, 3, 4.2, 5, 6 and the index part of step 7. The report says `reads work from the clone; the index needs Docker: start Docker and run setup-operator again`, and lists, under "to add by hand", `KB_PATH` = `<KB_PATH>`, the deny rule `Read(/.claude/settings.local.json)` and the allow rules for the commands that run without Docker (the `printenv`, `git` and `Read` rules of "Allow rules").
+2. `docker version --format '{{.Server.Version}}'` fails: Docker is missing or not running. This setup then writes nothing to `<settings>` and skips steps 1.4, 1.5, 3, 4.2, 5, 6 and 7. The report says `reads work from the clone; the index needs Docker: start Docker and run setup-operator again`, and lists, under "to add by hand", `KB_PATH` = `<KB_PATH>`, the deny rule `Read(/.claude/settings.local.json)` and the allow rules for the commands that run without Docker (the `printenv`, `git` and `Read` rules of "Allow rules").
 3. `git -C "<project>" ls-files --error-unmatch ".claude/settings.local.json"` exits 0: the file is tracked, and a password in it would be committed. Reply `<settings> is tracked by git; untrack it (git rm --cached) and add it to .gitignore, then run setup-operator again.` and stop. Any other exit code (untracked, or no git repository): continue. In a git repository, `git -C "<project>" check-ignore -q ".claude/settings.local.json"` exits 1: the file is not ignored and could still be committed; the report says `add .claude/settings.local.json to .gitignore`.
 4. `docker pull <mcp image>`.
 5. Protect the settings: merge (section "Merge into the settings") a fragment with `permissions.deny` = `["Read(/.claude/settings.local.json)"]` and `permissions.allow` = `["Read(//<plugins folder>/**)"]` (see "Allow rules"). Its `<password state>` is the state for the steps below.
@@ -145,7 +145,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 
    Authentication off, and `<password state>` is `present`: before asking, reply `<settings> already holds a NEO4J_PASSWORD, but neo4j-<kb> runs without authentication; remove that key from <settings>, then run setup-operator again.` and stop; nothing is changed.
 
-   No, or anything else: skip steps 5 and 6 and the index part of step 7; the report names `<list>`. Otherwise:
+   No, or anything else: skip steps 5, 6 and 7; the report names `<list>`. Otherwise:
    1. `docker stop -t 60 neo4j-<kb>` (time for a clean shutdown), then `docker rename neo4j-<kb> neo4j-<kb>.previous`. The dot keeps the name apart from every KB id, which has none. From here on, any failure or stop before step 3a.7.6, a merge `error:` of step 4.2 included, goes to step 3a.7.7.
    1b. `kb-<kb>` not internal: `docker network disconnect kb-<kb> neo4j-<kb>.previous` when it is attached, then `docker network rm kb-<kb>` and `docker network create --internal kb-<kb>`.
    2. `keep auth off`: add `NEO4J_AUTH=none` to `neo4j.env` (step 4.1) and leave `NEO4J_PASSWORD` out of the fragment (step 4.2).
@@ -161,7 +161,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 ### 3b. A new container
 
 1. `<data>` holds any entry (Glob tool, `<data>/**`): data without a container.
-   - `<password state>` is `present`: an earlier run of this setup set the password in `<data>` and `<settings>`, and its container did not start. Continue at step 3b.3 and skip step 5.1; if the first read then fails to log in, the report says `remove <data> and the NEO4J_PASSWORD key of <settings>, then run setup-operator again`.
+   - `<password state>` is `present`: an earlier run of this setup set the password in `<data>` and `<settings>`, and its container did not start. Continue at step 3b.3 and skip step 5.1; if the load check of step 7 then fails to log in, the report says `remove <data> and the NEO4J_PASSWORD key of <settings>, then run setup-operator again`.
    - Otherwise reply `<data> holds Neo4j data but no container neo4j-<kb> exists; a new container with a new password cannot open it. Remove <data> if the data is not needed, or tell me how to continue.` and stop.
 2. `<password state>` is `present` and `<data>` is empty: `<settings>` holds a password for a container and data that are gone. Reply `<settings> holds a NEO4J_PASSWORD, but neo4j-<kb> and its data no longer exist. Remove the NEO4J_PASSWORD key from <settings> yourself, then run setup-operator again.` and stop.
 3. Create `<data>` and `<queries>` (Commands per OS); on macOS and Linux run the `chmod 755` line.
@@ -269,23 +269,38 @@ A new or recreated container only. A reused container (step 3a.5) skips to step 
 
    The bare `-e` flags copy the values from the Claude Code session's environment, which the `env` of `<settings>` supplies; the password never appears in the registration. `--read-only` removes the write tool, so the server offers `mcp__kb-<kb>__get_neo4j_schema` and `mcp__kb-<kb>__read_neo4j_cypher`.
 
-## 7. First read
+## 7. Build and check the index
 
-The new `env` and the MCP server reach only new sessions, so the check runs in fresh sessions started in `<project>`:
+The new `env` and the MCP server reach only new sessions, so each check runs in a fresh session started in `<project>` with `claude -p`. The setup is done only when all three checks pass. A setup that skipped this step (Docker missing in step 1.2, a recreate declined in step 3a.7) reports `index: not ready — <that reason>`.
 
-1. The read finds an empty index and loads it, which runs the manifest's export. The export is not pre-allowed, and a headless session cannot ask, so this one session gets an explicit one-time grant for exactly the two commands update-operator runs (its step 6.2):
+1. **Load.** The load runs the manifest's export. The export is not pre-allowed, and a headless session cannot ask, so this one session gets an explicit one-time grant for exactly the two commands update-operator runs (its step 6.2):
+   - Fast-forward the clone first, as update-operator's steps 2.3 and 2.4 do: `git -C "<clone>" fetch --quiet origin`, then `git -C "<clone>" merge --ff-only --quiet origin/<default>`. The session then exports the commit the grant names.
    - `<commit>`: `git -C "<clone>" rev-parse HEAD`; `<export command>`: the manifest's `export.cmd` with `{ref}` replaced by `"<commit>"` and `{out}` by `"<import>/kb-export.json.tmp"`, as update-operator renders it.
-   - `<export command>` contains `*`, `;`, `&`, `|`, `)`, a backtick or a line break: it cannot be granted exactly. Run the read without a grant; the report says `the first read needs the export, which prompts: run "fetch: kb <first resource name>" once in an interactive session in <project>`.
+   - `<export command>` contains `*`, `;`, `&`, `|`, `)`, a backtick or a line break: it cannot be granted exactly. Run the session without the `--allowedTools` part; the export is refused there, and the failure action is `run "fetch: kb <first resource name of the manifest>" once in an interactive session in <project>, then run setup-operator again`.
    - Otherwise, allowing up to 10 minutes:
 
      ```
-     claude -p "Use the knowledge-base:access-orchestrator skill: fetch: kb <first resource name of the manifest>" --allowedTools 'Bash(cd "<clone>")' 'Bash(<export command>)'
+     claude -p "Use the knowledge-base:update-operator skill and reply with its report block only" --allowedTools 'Bash(cd "<clone>")' 'Bash(<export command>)'
      ```
 
-     The grant holds for that one session only, and it names the export with its commit, so it covers no other export run. When `origin/<default>` moved since `<commit>`, the export line differs and that session is refused it; run the read again interactively.
-2. With the MCP server registered: `claude -p "Use the knowledge-base:access-orchestrator skill: explore: kb <title of any document of the fetched resource>"`. Its reply must name the MCP server `kb-<kb>` as the source: content-provider's header `explore via MCP kb-<kb>`, or a sentence naming `kb-<kb>` as the MCP server it searched through. `explore via fixed queries`, or no mention of `kb-<kb>`, means the session did not reach the MCP server.
+     The grant holds for that one session only, and it names the export with its commit, so it covers no other export run.
+   - Passes when the reply's `index:` line is `loaded` or `current`, its `commit:` line starts with `<commit>`, and its `docs:` line is a number of at least 1. Otherwise the reason is the reply's `index:` line, `the index holds no documents`, or `the index is at <reply commit>, the clone at <commit>`.
+2. **Full-text index.** With the MCP server registered (step 6):
 
-Relay both replies verbatim in the report: a permission denial or a provider message there is the only reason shown when the index stays empty.
+   ```
+   claude -p "Run this query with the tool mcp__kb-<kb>__read_neo4j_cypher and reply with its result rows only: SHOW FULLTEXT INDEXES YIELD name, state, populationPercent WHERE name = 'kb_fulltext' RETURN state, populationPercent" --allowedTools 'mcp__kb-<kb>__read_neo4j_cypher'
+   ```
+
+   Passes when the state is `ONLINE`. `POPULATING`: run this check once more after check 3, and only that second result counts. No row, another state or a tool error: the reason is `kb_fulltext is <state, or "missing">`, or the error line. No MCP server: the reason is `the MCP server kb-<kb> is not registered`.
+3. **Explore through MCP.** `<title>`: the frontmatter `title`, or else the first `# ` heading, of a Markdown document under `<KB_PATH>` (Glob tool, then Read tool), taking the first document in Glob order whose title holds only letters, digits, spaces and `-` `.` `,` `:`. No character among them is special inside double quotes in bash, zsh or PowerShell, so the title can go on the command line. No title qualifies: the check fails with `no document title fits on a command line; run "explore: kb <a title>" in an interactive session in <project>`.
+
+   ```
+   claude -p "Use the knowledge-base:access-orchestrator skill: explore: kb <title>"
+   ```
+
+   Passes when the reply names the MCP server `kb-<kb>` as the source (content-provider's header `explore via MCP kb-<kb>`, or a sentence naming `kb-<kb>` as the MCP server it searched through) and lists at least one hit (`1. <path> — …`). `explore via fixed queries` or no mention of `kb-<kb>`: the session did not reach the MCP server. `No documents match.`: the search found nothing.
+
+`index: ready` only when checks 1 to 3 pass. Otherwise `index: not ready — <check>: <reason>; <action>`, with the first failed check. The action is the one named above, or else `fix the cause and run setup-operator again`: every step reuses what is already set up, so a second run repeats only what is missing and this step. Relay each reply verbatim in the report: a permission denial or a provider message there is often the only reason shown.
 
 ## 8. Report
 
@@ -298,8 +313,10 @@ mcp: kb-<kb> (<registered | kept | not set up: reason>)
 settings: <settings> (<added entries, or "unchanged">)
 conflicts: <each conflict line of the merges, or "none">
 to add by hand: <each missing key or rule, or "nothing">
-first read: <reply of 7.1, verbatim>
-explore: <reply of 7.2, verbatim>
+index: <ready (<docs> docs at <first 7 characters of commit>, kb_fulltext ONLINE, explore via MCP kb-<kb>) | not ready — <check>: <reason>; <action>>
+load: <reply of 7.1, verbatim>
+fulltext: <reply of 7.2, verbatim>
+explore: <reply of 7.3, verbatim>
 ```
 
 On Windows add: `permissions: not enforced on Windows (no chmod); <settings> is protected only by the user profile.`
@@ -312,6 +329,7 @@ On Windows add: `permissions: not enforced on Windows (no chmod); <settings> is 
 | Putting the password or `NEO4J_AUTH=…` on a command line, or asking for a password during the run | The scripts of step 5.1 generate it in place; a password the developer adds goes under "to add by hand" |
 | Recreating a container, or replacing a `KB_PATH`, `env` value or MCP registration, because it differs | Name the difference; recreate only on the explicit yes of step 3a.7 |
 | Starting a new container on a data folder that already holds data | Stop and ask (step 3b.1) |
-| Running the export or the load yourself | The first read in a fresh session loads the index |
+| Running the export or the load yourself | The load check of step 7 runs them in a fresh session |
+| Reporting the setup as done while the index is empty, behind the clone or not searchable | `index: ready` only when all checks of step 7 pass; otherwise `not ready` with the failed check and its action |
 | Checking the index or the MCP server in this session | This session has neither the new `env` nor the server; use fresh sessions |
 | Writing into the clone or the KB repository | The clone is read-only; writes go through `knowledge-base:article-writer` |

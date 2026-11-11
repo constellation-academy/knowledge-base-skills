@@ -76,12 +76,11 @@ const lit = (v: string | number | null): string => {
   let out = "";
   for (const ch of v) {
     const c = ch.codePointAt(0)!;
-    if (ch === "\\") out += "\\\\";
-    else if (c >= 0x20 && c <= 0x7e && ch !== "'" && ch !== '"') out += ch;
+    if (c >= 0x20 && c <= 0x7e && !"\\\"'$`".includes(ch)) out += ch;
     else if (c > 0xffff) out += u(Math.floor((c - 0x10000) / 0x400) + 0xd800) + u(((c - 0x10000) % 0x400) + 0xdc00);
     else out += u(c);
   }
-  return `"${out}"`;
+  return `'${out}'`;
 };
 
 async function spawn(cmd: string[], stdin = "", env: Record<string, string> = {}): Promise<Run> {
@@ -110,9 +109,13 @@ async function query(name: string, params: Record<string, string | number | null
 
 const QUERY_PREFIX = "docker exec -i -e NEO4J_USERNAME -e NEO4J_PASSWORD neo4j-kbtest cypher-shell -d neo4j --format plain -f";
 
+const PWSH = Bun.which("pwsh");
+
 const queryVia = (shell: string, name: string, params: Record<string, string | number | null>) => {
-  const args = Object.entries(params).map(([k, v]) => `-P '${k} => ${lit(v)}'`);
-  return spawn([shell, "-c", `${QUERY_PREFIX} /import/queries/${name}.cypher ${args.join(" ")}`]);
+  const args = Object.entries(params).map(([k, v]) => `-P "${k} => ${lit(v)}"`);
+  const line = `${QUERY_PREFIX} /import/queries/${name}.cypher ${args.join(" ")}`;
+  if (shell === "bash" || shell === "zsh") return spawn([shell, "-c", line]);
+  return spawn([PWSH!, "-NoProfile", "-Command", `$PSNativeCommandArgumentPassing = '${shell.slice(5)}'; ${line}`]);
 };
 
 const rows = (r: Run): any[] => {
@@ -537,7 +540,9 @@ describe("hostile strings", () => {
     expect(plain(await cypher("MATCH (n) RETURN count(n) AS c;"))).toEqual([[String(hostile.length + 1)]]);
   });
 
-  test("survives the contract's shell form in bash and zsh", async () => {
+  if (!PWSH) console.warn("PowerShell shell-form runs skipped: pwsh is not on PATH");
+
+  test("survives the contract's shell form in bash, zsh and PowerShell (Legacy and Standard argument passing)", async () => {
     const hostile = [
       `q"uote 'single' back\\slash trailing\\`,
       "line1\nline2\r\n\ttab, comma",
@@ -556,7 +561,7 @@ describe("hostile strings", () => {
     };
     rows(await load(e));
     expect(existsSync(MARKER)).toBe(false);
-    for (const sh of ["bash", "zsh"]) {
+    for (const sh of ["bash", "zsh", ...(PWSH ? ["pwsh:Legacy", "pwsh:Standard"] : [])]) {
       for (const d of e.docs) {
         const r = await queryVia(sh, "doc", { kb: "t", path: d.path });
         expect(rows(r)).toEqual([asDoc(d)]);

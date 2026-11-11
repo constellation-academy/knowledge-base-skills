@@ -16,14 +16,13 @@ export class FetchError extends Error {
 export function escapeLiteral(v: string | null | number): string {
   if (v === null) return "null";
   if (typeof v === "number") return String(v);
-  let out = '"';
+  let out = "'";
   for (let i = 0; i < v.length; i++) {
     const c = v.charCodeAt(i);
-    if (v[i] === "\\") out += "\\\\";
-    else if (c >= 0x20 && c <= 0x7e && v[i] !== '"' && v[i] !== "'") out += v[i];
+    if (c >= 0x20 && c <= 0x7e && !"\\\"'$`".includes(v[i])) out += v[i];
     else out += "\\u" + c.toString(16).padStart(4, "0"); // UTF-16 units: astral becomes a surrogate pair
   }
-  return out + '"';
+  return out + "'";
 }
 
 export function splitShell(cmd: string): string[] {

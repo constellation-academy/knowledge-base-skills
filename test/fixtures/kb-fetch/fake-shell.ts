@@ -20,7 +20,8 @@ for (let i = 0; i < args.length; i++) {
   else if (a === "-P") {
     const m = /^(\w+) => (.*)$/s.exec(args[++i] ?? "");
     if (!m) fail("ERR_BAD_PARAM");
-    params[m![1]] = JSON.parse(m![2]); // literals are valid JSON strings/numbers/null
+    const v = m![2];
+    params[m![1]] = v.startsWith("'") && v.endsWith("'") ? JSON.parse(`"${v.slice(1, -1)}"`) : JSON.parse(v);
   } else fail(`ERR_BAD_FLAG ${a}`);
 }
 if (!db) fail("ERR_NO_DATABASE");

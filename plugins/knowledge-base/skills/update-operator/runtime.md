@@ -11,7 +11,7 @@ Every command below runs unchanged in bash, zsh and PowerShell.
 - Never open, `cat` or search the project's `.claude/settings.local.json` or `.claude/settings.json` to find a value: they hold the Neo4j password. Values come only from the environment, as above.
 - No `<` or `>` redirection, no pipes, no `&&`. Two steps in one line are separated by `;`.
 - Paths are absolute and in double quotes.
-- Free text (commit messages, titles, pull request bodies) never goes on a command line: write it to a file with the file tools and pass the file. The one exception is a query parameter, which goes on the line only as a `-P` literal.
+- Free text (commit messages, titles, pull request bodies) never goes on a command line: write it to a file with the file tools and pass the file. The one exception is a query parameter, which goes on the line only as a `-P` literal (section "Run a query").
 
 ## Denied or failed commands
 
@@ -42,21 +42,22 @@ Names used by the skills:
 Read `NEO4J_SHELL` and `NEO4J_DATABASE`. `<shell>` below is the value of `NEO4J_SHELL`, written out literally; `<database>` is the value of `NEO4J_DATABASE`.
 
 ```
-<shell> -d <database> --format plain -f <query file> -P '<name> => <literal>' …
+<shell> -d <database> --format plain -f <query file> -P "<name> => <literal>" …
 ```
 
 - `<query file>`: `/import/queries/<name>.cypher` when `<shell>` starts with `docker exec`; otherwise the host path `<queries>/<name>.cypher`.
 - One `-P` flag per parameter of the table below.
-- Each `<literal>` follows the contract's `-P` literal rule (section "Queries"). Examples:
+- Each `<literal>` follows the contract's `-P` literal rule (section "Queries"): a single-quoted Cypher string with `\`, `"`, `'`, `$`, the backtick and every character outside printable ASCII written as `\uXXXX`, inside a double-quoted argument. Never put a raw `"` inside the argument: Windows PowerShell 5.1 drops it when it calls `docker`, and cypher-shell then reads the value as a variable name. Examples:
 
 | Value | Flag |
 |---|---|
-| `kb` = `example-github` | `-P 'kb => "example-github"'` |
-| `path` = `guides/Café "fast".md` | `-P 'path => "guides/Caf\u00e9 \u0022fast\u0022.md"'` |
-| `path` = `notes/it's.md` | `-P 'path => "notes/it\u0027s.md"'` |
-| `query` = `C:\temp` | `-P 'query => "C:\\temp"'` |
-| `type` for all documents | `-P 'type => null'` |
-| `limit` = 10 | `-P 'limit => 10'` |
+| `kb` = `example-github` | `-P "kb => 'example-github'"` |
+| `path` = `guides/Café "fast".md` | `-P "path => 'guides/Caf\u00e9 \u0022fast\u0022.md'"` |
+| `path` = `notes/it's.md` | `-P "path => 'notes/it\u0027s.md'"` |
+| `query` = `C:\temp` | `-P "query => 'C:\u005ctemp'"` |
+| `query` = `$HOME` | `-P "query => '\u0024HOME'"` |
+| `type` for all documents | `-P "type => null"` |
+| `limit` = 10 | `-P "limit => 10"` |
 
 Parameters per query:
 
