@@ -79,7 +79,7 @@ Index available:
 
      Further read queries the question needs (by type, status or tag) are allowed; each matches only `Doc {kb: $kb}` and never returns more than a 200-character excerpt of `body`.
    - Without it: the queries `related` and `supersede-chain` with `path` per hit. `related` rows give links out (`direction` `out`) and links in (`in`). `supersede-chain` gives the hit's own type and status (its row with `distance` 0), what it supersedes (positive `distance`) and what supersedes it (negative `distance`).
-3. Return the material in score order, without judging it:
+3. Return the material in score order, without judging it. The first line is the header below, written exactly, with `MCP kb-<kb>` when the hits came through the MCP server and `fixed queries` otherwise: callers check it to see which source answered.
 
 ```
 KB <kb> at <first 7 characters of commit>; explore via <MCP kb-<kb> | fixed queries>
