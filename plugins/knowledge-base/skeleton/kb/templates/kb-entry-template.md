@@ -1,7 +1,7 @@
 ---
 type: template
 title: Article Template
-description: The structure of a new article; decisions use the ADR or PDR template instead.
+description: The structure of a new article; decisions use the ADR<!-- section:pdr --> or PDR<!-- /section:pdr --> template instead.
 tags: [template]
 ---
 

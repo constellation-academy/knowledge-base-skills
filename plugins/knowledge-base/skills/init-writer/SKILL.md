@@ -45,7 +45,8 @@ Ask: `Do you have two empty private GitHub repositories for this, named <somethi
   <id> is a 3-letter short name for your team, e.g. tka. They must be private because the knowledge base holds internal knowledge. Once both exist, run me again.
   ```
 
-- **Yes:** ask for both URLs (the address shown on the repository's GitHub page). From them take `<owner>` (the organisation or account), `<id>` and the repository names. Stop with a message naming the problem when:
+- **Yes:** ask for both URLs (the address shown on the repository's GitHub page). Each must have the form `https://github.com/<owner>/<repo>`, optionally ending in `.git` or `/`. From them take `<owner>` (the organisation or account), `<id>` and the repository names. From here on, `<url>` of a repository is `https://github.com/<owner>/<repo>.git`, built from those parts, never the text the user typed, so the checks and the push reach the same repository. Stop with a message naming the problem when:
+  - a URL is not on `github.com`: `I only work with repositories on github.com. Please send the github.com address of both repositories.`
   - the two URLs have different owners;
   - the names are not `<id>-knowledge-base` and `<id>-agent-skills` with the same `<id>`;
   - `<id>` is not exactly 3 lower-case letters (`^[a-z]{3}$`): `The short name before -knowledge-base must be 3 lower-case letters, e.g. tka. Ask the person who created the repositories to rename them, then run me again.`
@@ -62,11 +63,13 @@ For each repository, before asking anything else:
 | writable | `gh repo view <owner>/<repo> --json viewerPermission --jq .viewerPermission` | `ADMIN`, `MAINTAIN` or `WRITE` |
 | empty | `git ls-remote <url>` | nothing |
 
+A repository that is not empty counts as **already filled** when `gh api repos/<owner>/<repo>/commits --jq '[.[].commit.message | split("\n")[0]]'` prints exactly one subject and it is this skill's initial commit subject for that repository (step 6: `docs(kb): initial knowledge base skeleton` or `feat: initial team skills for the <team> knowledge base`; for the second, any team name). An earlier run pushed it and stopped before the other repository: the run continues, and step 7 skips that repository's push. Both already filled: tell the user both are done, show the step 8 report and stop.
+
 Run all three checks on both repositories, then report every failure at once with the matching message and stop; nothing has been written:
 
 - not private: `<repo> is not private. A knowledge base holds internal knowledge, so I only fill private repositories. Ask the person who created it to make it private (GitHub → Settings → Danger Zone → Change visibility), then run me again.`
 - not writable, or `gh repo view` fails: `You cannot write to <repo> with your GitHub account. Ask the person who created it to give you write access, then run me again.`
-- not empty: `<repo> already has content. I only fill empty repositories, so nothing is overwritten. Ask the person who created it for an empty one, or remove the content, then run me again.`
+- not empty and not already filled: `<repo> already has content. I only fill empty repositories, so nothing is overwritten. Ask the person who created it for an empty one, or remove the content, then run me again.`
 
 ## 4. Interview
 
@@ -87,10 +90,10 @@ Repeat all answers back and ask for a yes before writing anything.
 `<home>` is the user's home folder. `<work>` is `<home>/.kb/.init`. Remove `<work>/<id>-knowledge-base` and `<work>/<id>-agent-skills` if they exist from an earlier, unfinished run, then:
 
 ```
-bun "<plugin dir>/scripts/kb-init.ts" --kb <id> --team "<team>" --owner <owner> --decider "<decider>" --sections <comma-separated sections, empty for none> --kb-out "<work>/<id>-knowledge-base" --skills-out "<work>/<id>-agent-skills"
+bun "<plugin dir>/scripts/kb-init.ts" --kb <id> --team "<team>" --owner <owner> --decider "<decider>" --sections <comma-separated sections> --kb-out "<work>/<id>-knowledge-base" --skills-out "<work>/<id>-agent-skills"
 ```
 
-Exit 2: the error lines name the invalid value; ask the user for that value again and rerun. Any other failure: report the output and stop.
+Leave out `--sections` entirely when the user chose no section. Exit 2: the error lines name the invalid value; ask the user for that value again and rerun. Any other failure: report the output and stop.
 
 ## 6. Check the result
 
@@ -110,7 +113,7 @@ Any failure: report the command and its output, push nothing, and stop. A failur
 
 ## 7. Push
 
-Run step 3's three checks again for both repositories; they must still pass. Then in each folder:
+Run step 3's checks again for both repositories; they must still pass. Then in each folder whose repository is not already filled:
 
 ```
 git remote add origin <url>

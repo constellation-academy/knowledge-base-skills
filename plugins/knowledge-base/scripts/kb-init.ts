@@ -140,7 +140,9 @@ export function renderSkills(o: InitOptions, outDir: string): void {
 
 function option(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
-  return i === -1 ? undefined : args[i + 1];
+  if (i === -1) return undefined;
+  const value = args[i + 1];
+  return value === undefined || value.startsWith("--") ? "" : value;
 }
 
 if (import.meta.main) {

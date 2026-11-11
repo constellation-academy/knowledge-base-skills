@@ -23,7 +23,21 @@ export const SECTIONS: Section[] = [
 export const ROOT_FILES = ["README.md", "glossary.md"];
 
 export const DECISION_TYPES = new Set(["adr", "pdr"]);
-export const TYPES = new Set(["adr", "pdr", "process", "reference", "primer", "template", "glossary"]);
+export const TYPES = new Set([
+  "adr",
+// section:pdr
+  "pdr",
+// /section:pdr
+// section:process
+  "process",
+// /section:process
+  "reference",
+// section:primer
+  "primer",
+// /section:primer
+  "template",
+  "glossary",
+]);
 export const REQUIRED = ["type", "title", "description", "tags"];
 export const DECISION_REQUIRED = ["status", "date"];
 export const DECISION_STATUSES = ["Proposed", "Accepted", "Superseded", "Postponed"];

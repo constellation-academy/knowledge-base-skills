@@ -48,7 +48,7 @@ Every section folder carries a generated `index.md`.
 
 Every `.md` file except `index.md` starts with:
 
-- `type`: one of `adr | pdr | process | reference | primer | template | glossary`
+- `type`: one of `adr<!-- section:pdr --> | pdr<!-- /section:pdr --><!-- section:process --> | process<!-- /section:process --> | reference<!-- section:primer --> | primer<!-- /section:primer --> | template | glossary`
 - `title`: human title
 - `description`: one to two sentences, used verbatim in the catalogs
 - `tags`: an inline array of lower-case words, e.g. `[onboarding, billing]`; reuse tags that already exist

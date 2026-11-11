@@ -134,6 +134,11 @@ describe("renderKb", () => {
     expect(readme).not.toContain("`process/`");
     expect(readme).toContain("Jane Doe accepts decisions (ADRs)");
     expect(readFileSync(join(out, "scripts", "kb.ts"), "utf8")).not.toContain('dir: "process"');
+    const types = readFileSync(join(out, "scripts", "kb.ts"), "utf8").match(/export const TYPES = new Set\(\[([^\]]*)\]\)/)![1];
+    for (const t of ["pdr", "process", "primer"]) expect(types).not.toContain(`"${t}"`);
+    expect(types).toContain('"reference"');
+    expect(readme).toContain("one of `adr | reference | template | glossary`");
+    expect(readFileSync(join(out, "templates", "kb-entry-template.md"), "utf8")).not.toContain("PDR");
     expect(JSON.parse(readFileSync(join(out, "kb-manifest.json"), "utf8"))).toEqual(buildManifest(opts()));
   });
 
@@ -162,9 +167,12 @@ describe("renderKb", () => {
     expect(existsSync(out)).toBe(false);
   });
 
-  test("rendered KB passes its own lint, tests and export", () => {
+  test.each([
+    ["every section", ["process", "reference", "primer", "pdr"]],
+    ["no section", []],
+  ])("rendered KB with %s passes its own lint, tests and export", (_, sections) => {
     const out = join(tmp, "kb");
-    renderKb(opts({ kb: "tst", sections: ["process", "reference", "primer", "pdr"] }), out);
+    renderKb(opts({ kb: "tst", sections: sections as Section[] }), out);
     const git = (...a: string[]) => execFileSync("git", ["-C", out, ...a], { encoding: "utf8" });
     git("init", "-q", "-b", "main");
     git("-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false", "add", "-A");
@@ -214,6 +222,13 @@ describe("renderSkills", () => {
 });
 
 describe("CLI", () => {
+  test("a --sections flag without a value means no sections", () => {
+    const r = spawnSync(process.execPath, [SCRIPT, "--kb", "tka", "--team", "Team Alpha", "--owner", "acme", "--decider", "Jane Doe", "--sections", "--kb-out", join(tmp, "a"), "--skills-out", join(tmp, "b")], { encoding: "utf8" });
+    expect(r.stderr).toBe("");
+    expect(r.status).toBe(0);
+    expect(existsSync(join(tmp, "a", "process"))).toBe(false);
+  });
+
   test("renders both trees", () => {
     const r = spawnSync(process.execPath, [SCRIPT, "--kb", "tka", "--team", "Team Alpha", "--owner", "acme", "--decider", "Jane Doe", "--sections", "process,pdr", "--kb-out", join(tmp, "a"), "--skills-out", join(tmp, "b")], { encoding: "utf8" });
     expect(r.stderr).toBe("");
