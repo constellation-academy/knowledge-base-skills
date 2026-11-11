@@ -75,6 +75,7 @@ docs: <docs, or "-" when the index is unavailable>
 | Running `git pull`, `checkout` or `reset` in the clone, or editing a file there | Only `fetch` and `merge --ff-only`; the clone is read-only |
 | Writing `$NEO4J_SHELL` or `$env:NEO4J_SHELL` into a command | Read the value first, then write it out literally |
 | Reading or printing `NEO4J_PASSWORD` | Never; `NEO4J_SHELL` passes the credentials on by name |
+| Writing a parameter as `-P 'kb => "<kb>"'` | `-P "kb => '<kb>'"` with the escapes of `runtime.md`; Windows PowerShell 5.1 drops a `"` inside an argument, and the query then fails |
 | Loading when `status` already reports `<commit>` | Load only on a different `sha` or an empty store |
 | Running the export against the working tree or a branch name | `{ref}` is the full commit SHA `<commit>` |
 | Stopping the caller because Neo4j is down | Report `index: unavailable` with the reason; the caller reads the files |
