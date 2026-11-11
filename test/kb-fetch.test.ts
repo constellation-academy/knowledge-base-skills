@@ -2,7 +2,7 @@ import { describe, expect, test, beforeAll } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { escapeLiteral, splitShell, main, loadConfig } from "../plugins/knowledge-base/scripts/kb-fetch";
+import { escapeLiteral, splitShell, main, loadConfig, parseRows, runQuery } from "../plugins/knowledge-base/scripts/kb-fetch";
 
 const FIX = join(import.meta.dir, "fixtures/kb-fetch");
 const BUN = process.execPath;
@@ -80,8 +80,8 @@ describe("config errors exit 2", () => {
 describe("status", () => {
   test("ok reaches resolution stub", () => {
     const r = main(["glossary"], env());
-    expect(r.code).not.toBe(3);
-    expect(r.code).not.toBe(2);
+    expect(r.code).toBe(0);
+    expect(r.stderr).toBe("");
   });
   test("shell failure -> index with first stderr line", () => {
     const r = main(["glossary"], env({ FAKE_FAIL: "ERR_BOOM" }));
@@ -99,5 +99,18 @@ describe("status", () => {
     const r = main(["glossary"], env({ FAKE_STATUS: "norow" }));
     expect(r.code).toBe(3);
     expect(err(r).error).toBe("index");
+  });
+});
+
+describe("plain-output row parsing", () => {
+  test("live cypher-shell line: only quotes escaped, backslashes untouched", () => {
+    const line = String.raw`"{\"a\":\"x\\y \\"q\\" b\\cé\"}"`;
+    expect(parseRows("x", "json\n" + line + "\n")).toEqual([{ a: 'x\\y "q" b\\cé' }]);
+  });
+  test("runQuery round-trips backslash, quote and trailing backslash", () => {
+    const title = 'a\\b "q" c\\';
+    const cfg = loadConfig(env({ FAKE_TITLE: title }));
+    const rows = runQuery("doc", { kb: "fx", path: "glossary.md" }, cfg) as any[];
+    expect(rows[0].title).toBe(title);
   });
 });

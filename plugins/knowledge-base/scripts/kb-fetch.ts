@@ -73,7 +73,11 @@ export function runQuery(name: string, params: Record<string, string | number | 
   }
   const first = (s: Uint8Array) => new TextDecoder().decode(s).split("\n").find((l) => l.trim()) ?? "";
   if (r.exitCode !== 0) throw new FetchError("index", `query ${name} failed: ${first(r.stderr) || `exit ${r.exitCode}`}`);
-  const lines = new TextDecoder().decode(r.stdout).split("\n").filter((l) => l.trim() !== "");
+  return parseRows(name, new TextDecoder().decode(r.stdout));
+}
+
+export function parseRows(name: string, out: string): object[] {
+  const lines = out.split("\n").filter((l) => l.trim() !== "");
   if (lines.length === 0) return [];
   if (lines[0].trim() !== "json") throw new FetchError("index", `query ${name}: unexpected output header`);
   return lines.slice(1).map((l) => {

@@ -31,7 +31,7 @@ const name = basename(file, ".cypher");
 const index = JSON.parse(readFileSync(join(import.meta.dir, "index.json"), "utf8"));
 const same = params.kb === index.kb;
 const row = (d: any) => ({
-  path: d.path, type: d.type, title: d.title ?? d.path, description: d.description ?? null,
+  path: d.path, type: d.type, title: process.env.FAKE_TITLE ?? d.title ?? d.path, description: d.description ?? null,
   status: d.status ?? null, tags: d.tags ?? [], refs: d.refs ?? [], supersedes: d.supersedes ?? [],
   parts: d.parts, extra: d.extra ?? {},
 });
