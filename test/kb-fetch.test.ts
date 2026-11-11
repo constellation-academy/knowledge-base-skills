@@ -58,6 +58,7 @@ describe("shell forms", () => {
 [ "$9" = -d ] && [ "\${10}" = neo4j ] && [ "\${11}" = --format ] && [ "\${12}" = plain ] && [ "\${13}" = -f ] || { echo "ERR_DOCKER_ARGV_FLAGS $*" >&2; exit 1; }
 case "\${14}" in /import/queries/status.cypher|/import/queries/doc.cypher|/import/queries/list.cypher) ;; *) echo "ERR_DOCKER_QUERY_FILE \${14}" >&2; exit 1;; esac
 [ "\${15}" = -P ] || { echo "ERR_DOCKER_NO_P" >&2; exit 1; }
+{ printf '%s\\n' "\$@"; echo ---; } >> "${join(root, "docker-argv.log")}"
 shift 8
 exec ${BUN} ${join(FIX, "fake-shell.ts")} "$@"
 `;
@@ -66,6 +67,16 @@ exec ${BUN} ${join(FIX, "fake-shell.ts")} "$@"
     const r = main(["glossary", "notes"], e);
     expect(r.stderr).toBe("");
     expect(r.code).toBe(0);
+    const calls = readFileSync(join(root, "docker-argv.log"), "utf8").split("---\n").filter(Boolean).map((c) => c.split("\n").slice(0, -1));
+    const find = (q: string) => calls.filter((c) => c[13] === `/import/queries/${q}.cypher`);
+    // every -P is one argv element: <name> => '<escaped literal>' (or a bare null/number)
+    expect(find("status")).toHaveLength(1);
+    expect(find("status")[0].slice(14)).toEqual(["-P", "kb => 'fx'"]);
+    expect(find("doc").map((c) => c.slice(14))).toEqual([
+      ["-P", "kb => 'fx'", "-P", "path => 'glossary.md'"],
+      ["-P", "kb => 'fx'", "-P", "path => 'notes/'"],
+    ]);
+    expect(find("list").map((c) => c.slice(14))).toEqual([["-P", "kb => 'fx'", "-P", "type => null"]]);
     expect(JSON.parse(r.stdout).items.map((i: any) => i.item)).toEqual(["glossary", "notes"]);
   });
 });
@@ -234,6 +245,29 @@ describe("resolution and output", () => {
     // sanity: an ordinary path in the same index still reads
     expect(main(["glossary"], env({ KB_PATH: d, FAKE_INDEX: ip })).code).toBe(0);
   });
+  test("KB root reached through a symlink still reads documents", () => {
+    const real = join(root, "symreal", "repo");
+    cpSync(kbPath, real, { recursive: true });
+    const linked = join(root, "symlinked", "fx");
+    mkdirSync(linked, { recursive: true });
+    symlinkSync(real, join(linked, "repo"));
+    const o = ok(["glossary", "guide"], env({ KB_PATH: join(linked, "repo") }));
+    expect(paths(o, 0)).toEqual(["glossary.md"]);
+    expect(paths(o, 1)).toEqual(["guide/01-intro.md", "guide/02-usage.md"]);
+    expect(o.items[0].documents[0].text).toBe(readFileSync(join(kbPath, "glossary.md"), "utf8"));
+  });
+  test("kb_root other than '.' reads documents under the KB root", () => {
+    const clone = join(root, "nested", "fx", "repo");
+    const d = join(clone, "knowledge");
+    mkdirSync(clone, { recursive: true });
+    cpSync(kbPath, d, { recursive: true });
+    const m = JSON.parse(readFileSync(join(d, "kb-manifest.json"), "utf8"));
+    writeFileSync(join(d, "kb-manifest.json"), JSON.stringify({ ...m, kb_root: "knowledge" }));
+    const o = ok(["glossary", "notes/a.md", "guide"], env({ KB_PATH: d }));
+    expect(paths(o, 0)).toEqual(["glossary.md"]);
+    expect(paths(o, 1)).toEqual(["notes/a.md"]);
+    expect(paths(o, 2)).toEqual(["guide/01-intro.md", "guide/02-usage.md"]);
+  });
   test("resource with zero documents -> 4", () => {
     const d = join(root, "zero", "fx", "repo");
     cpSync(kbPath, d, { recursive: true });
@@ -290,14 +324,16 @@ describe("unexpected errors and empty argv", () => {
     expect(err(r)).toEqual({ error: "config", detail: "no items", item: null });
   });
   test("non-FetchError -> one internal JSON line, exit 1, no stdout", () => {
-    const r = main(["decisions"], env({ FAKE_LIST: "nullrow" }));
+    // an env accessor that throws a plain Error: a deterministic non-FetchError inside main
+    const e = env();
+    Object.defineProperty(e, "NEO4J_DATABASE", { get() { throw new Error("boom\nsecond line"); }, enumerable: true });
+    const r = main(["glossary"], e);
     expect(r.code).toBe(1);
     expect(r.stdout).toBe("");
     expect(r.stderr.trim().split("\n")).toHaveLength(1);
-    const e = err(r);
-    expect(e.error).toBe("internal");
-    expect(e.item).toBeNull();
-    expect(typeof e.detail).toBe("string");
-    expect(e.detail).not.toContain("\n");
+    const out = err(r);
+    expect(out.error).toBe("internal");
+    expect(out.item).toBeNull();
+    expect(out.detail).toBe("boom");
   });
 });

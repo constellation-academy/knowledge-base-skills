@@ -1,5 +1,5 @@
 // Fake cypher-shell: answers status/doc/list from index.json next to this file.
-// Env: FAKE_INDEX=<path> -> read that index instead of index.json; FAKE_FAIL=ERR_x -> exit 1 with that first stderr line; FAKE_STATUS=empty|norow; FAKE_LIST=nullrow -> list returns a null row.
+// Env: FAKE_INDEX=<path> -> read that index instead of index.json; FAKE_FAIL=ERR_x -> exit 1 with that first stderr line; FAKE_STATUS=empty|norow.
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
@@ -44,8 +44,6 @@ if (name === "status") {
 } else if (name === "doc") {
   const d = same && index.docs.find((x: any) => x.path === params.path);
   rows = d ? [row(d)] : [];
-} else if (name === "list" && process.env.FAKE_LIST === "nullrow") {
-  rows = [null]; // malformed row: provokes an unexpected (non-FetchError) error in the reader
 } else if (name === "list") {
   rows = !same ? [] : index.docs.filter((d: any) => params.type == null || d.type === params.type)
     .sort((a: any, b: any) => (a.path < b.path ? -1 : 1)).map(row);
