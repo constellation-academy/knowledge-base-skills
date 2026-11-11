@@ -168,7 +168,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 
 ## 4. Write the project settings
 
-1. Write `<kb folder>/neo4j.env` with the file tools, unless its text already equals what this step would write: the lines of `<scripts>/neo4j.env` exactly (APOC, file import confined to `/import`, the procedure allowlist), followed by the lines a recreate adds (step 3a.7).
+1. Write `<kb folder>/neo4j.env` with the file tools, unless its text already equals what this step would write (read both files with the Read tool and compare): the lines of `<scripts>/neo4j.env` exactly (APOC, file import confined to `/import`, the procedure allowlist), followed by the lines a recreate adds (step 3a.7).
 
 2. Merge (section "Merge into the settings") a fragment with:
    - `env`: `KB_PATH` = `<KB_PATH>`, `NEO4J_SHELL` = `<NEO4J_SHELL>`, `NEO4J_USERNAME` = `neo4j`, `NEO4J_DATABASE` = `neo4j`; for a new container, or a recreate that turns authentication on, also `NEO4J_PASSWORD` = `__KB_PASSWORD__`, a placeholder that step 5.1 replaces.
@@ -284,7 +284,8 @@ The new `env` and the MCP server reach only new sessions, so each check runs in 
      ```
 
      The grant holds for that one session only, and it names the export with its commit, so it covers no other export run.
-   - Passes when the reply's `index:` line is `loaded` or `current`, its `commit:` line starts with `<commit>`, and its `docs:` line is a number of at least 1. Otherwise the reason is the reply's `index:` line, `the index holds no documents`, or `the index is at <reply commit>, the clone at <commit>`.
+   - After the session, `git -C "<clone>" rev-parse HEAD` is `<head>`: the session fast-forwards the clone itself, so `<head>` differs from `<commit>` when `origin/<default>` moved in between.
+   - Passes when the reply's `index:` line is `loaded` or `current`, its `commit:` line equals `<head>`, and its `docs:` line is a number of at least 1. Otherwise the reason is the reply's `index:` line, `the index holds no documents`, or `the index is at <reply commit>, the clone at <head>`.
 2. **Full-text index and test title.** With the MCP server registered (step 6):
 
    ```
@@ -315,7 +316,7 @@ mcp: kb-<kb> (<registered | kept | replaced | kept, differs: <difference>; <acti
 settings: <settings> (<added entries, or "unchanged">)
 conflicts: <each conflict line of the merges, or "none">
 to add by hand: <each missing key or rule, or "nothing">
-index: <ready (<docs> docs at <first 7 characters of commit>, kb_fulltext ONLINE, explore via MCP kb-<kb>) | not ready — <check>: <reason>; <action>>
+index: <ready (<docs> docs at <first 7 characters of <head>>, kb_fulltext ONLINE, explore via MCP kb-<kb>) | not ready — <check>: <reason>; <action>>
 load: <reply of 7.1, verbatim>
 fulltext: <reply of 7.2, verbatim>
 explore: <reply of 7.3, verbatim>
