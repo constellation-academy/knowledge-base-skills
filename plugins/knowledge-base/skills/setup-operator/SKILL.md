@@ -260,7 +260,7 @@ A new or recreated container only. A reused container (step 3a.5) skips to step 
 
 ## 6. Register the MCP server
 
-1. In `<project>`: `claude mcp get kb-<kb>`. It exists: its command and arguments must be exactly those of step 6.2; equal: keep it. Different: never change it; name the difference in the report.
+1. In `<project>`: `claude mcp get kb-<kb>`. It exists: its command and arguments must be exactly those of step 6.2; equal: keep it. Different: ask exactly `kb-<kb> is registered as <current command and arguments>; setup-operator registers <command and arguments of step 6.2>. Replace the registration?` Yes: `claude mcp remove -s local kb-<kb>`, then step 6.2. Anything else: keep it; the report names the difference and the action `run claude mcp remove -s local kb-<kb> in <project>, then run setup-operator again`.
 2. It does not exist, in `<project>`:
 
    ```
@@ -309,7 +309,7 @@ KB <kb> for <project>
 clone: <clone> (<new | reused>) at <first 7 characters of HEAD>
 KB_PATH: <KB_PATH>
 neo4j: neo4j-<kb> (<new | reused | recreated | not set up: reason>), internal network kb-<kb>, no published ports, data <data>
-mcp: kb-<kb> (<registered | kept | not set up: reason>)
+mcp: kb-<kb> (<registered | kept | replaced | kept, differs: <difference>; <action> | not set up: reason>)
 settings: <settings> (<added entries, or "unchanged">)
 conflicts: <each conflict line of the merges, or "none">
 to add by hand: <each missing key or rule, or "nothing">
@@ -327,7 +327,7 @@ On Windows add: `permissions: not enforced on Windows (no chmod); <settings> is 
 |---|---|
 | Reading `<settings>` with the file tools, `cat` or Grep, or printing `docker inspect` `.Config.Env` | Change it only through the merge script; inspect only the fields of step 3a.1 |
 | Putting the password or `NEO4J_AUTH=…` on a command line, or asking for a password during the run | The scripts of step 5.1 generate it in place; a password the developer adds goes under "to add by hand" |
-| Recreating a container, or replacing a `KB_PATH`, `env` value or MCP registration, because it differs | Name the difference; recreate only on the explicit yes of step 3a.7 |
+| Recreating a container, or replacing a `KB_PATH`, `env` value or MCP registration, because it differs | Name the difference; recreate a container only on the explicit yes of step 3a.7, replace an MCP registration only on the explicit yes of step 6.1 |
 | Starting a new container on a data folder that already holds data | Stop and ask (step 3b.1) |
 | Running the export or the load yourself | The load check of step 7 runs them in a fresh session |
 | Reporting the setup as done while the index is empty, behind the clone or not searchable | `index: ready` only when all checks of step 7 pass; otherwise `not ready` with the failed check and its action |
