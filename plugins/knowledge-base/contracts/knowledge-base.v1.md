@@ -141,12 +141,89 @@ The export command writes one JSON object to `{out}`:
 - Fixed queries: `fulltext`, `load`, `status`, `doc`, `list`, `related`, `supersede-chain`, `search`.
 - Ad-hoc exploration uses the MCP server `kb-<kb id>` (`mcp/neo4j-cypher`, read-only). Without it, exploration uses the fixed queries `search` and `related`.
 
+## Resolution
+
+Every read resolves an item (a resource name from the manifest's `resources`, or a document path) to an ordered list of documents. Paths are relative to the KB root.
+
+| Item | Index available | Index unavailable |
+|---|---|---|
+| `{"file": p}` resource | the file `p` | the file `p` |
+| `{"type": [t, …]}` resource | query `list` once per type `t`, take each row's `path` | every Markdown file under `<KB root>` whose frontmatter `type` is one of the types, except the `template` files named in `article_types` (Grep tool) |
+| `{"folder": f}` resource | query `doc` with `path` = `f`: a row with non-empty `parts` is an assembled document, read its `parts` in order; no row, a null row, or no `parts` means a plain folder, resolved as in the next column | the folder's Markdown files except `index.md`, in file-name order, read from the clone |
+| document path ending in `/` | as a folder resource | as a folder resource |
+| other document path | that file | that file |
+
+- A `type` resource lists its documents sorted by path, whichever source found them.
+- A frontmatter `type` counts only inside the leading `---` block of a file, not in its body.
+- A `list` or `doc` query fails, or `doc` returns no row, a null row, or a row without `parts` or with empty `parts`: a reader that can fall back resolves that item as in the "Index unavailable" column. This is the normal case for a KB whose folder resources are plain folders of documents, not a failure, so it adds no note.
+- An unknown resource name: `not a resource of KB <kb>: <name>; resources: <names in the manifest>`. A missing file: `not found: <path>`. Either affects only that item.
+- Index-only rules, for a reader that has no fallback (section "Machine reads"):
+  - A plain folder through the index is query `list` with `type` null, keeping the rows whose path is a direct child `.md` document of the folder (one more `/`-segment, no deeper) except `index.md`, in path order.
+  - A `file` resource or a document path must have a `doc` row in the index; otherwise it is unresolved.
+
+Worked example. The fixture KB `fx` (checked in as `test/fixtures/kb-fetch/`; its index holds the documents listed in `index.json` there) has this manifest, shortened to the fields that matter here (`resolution-manifest`):
+
+```json
+{
+  "kb": "fx",
+  "kb_root": ".",
+  "resources": {
+    "glossary": { "file": "glossary.md" },
+    "decisions": { "type": ["adr"] },
+    "guide": { "folder": "guide/" },
+    "notes": { "folder": "notes/" }
+  }
+}
+```
+
+Through the index, each item resolves to these documents, in this order (`resolution-expected`):
+
+```json
+{
+  "glossary": ["glossary.md"],
+  "decisions": ["decisions/0001-first.md", "decisions/0002-second.md"],
+  "guide": ["guide/01-intro.md", "guide/02-usage.md"],
+  "notes": ["notes/a.md", "notes/b.md"],
+  "guide/": ["guide/01-intro.md", "guide/02-usage.md"],
+  "notes/a.md": ["notes/a.md"]
+}
+```
+
+`guide` is an assembled document: `doc` returns a row for `guide/` with `parts`. `notes` has no `doc` row, so `list` without a type runs, and `notes/index.md` and the deeper `notes/deep/c.md` are dropped.
+
+## Machine reads
+
+A machine reader (a script, not a skill) reads KB text through the index without the plugin's skills. The plugin ships one: `kb-fetch`.
+
+- Invocation: `bun <plugin dir>/scripts/kb-fetch.ts <item> [<item> ...]`, each item a resource name or a document path, as in `content-provider`'s `fetch`.
+- Configuration comes only from the environment: `KB_PATH`, `NEO4J_SHELL` and `NEO4J_DATABASE`. `NEO4J_USERNAME` and `NEO4J_PASSWORD` pass through the environment by name to `cypher-shell`; the reader never reads or prints them.
+- Resolution: the index column of section "Resolution", no fallback: no file-system listing, no git, no staleness logic. `status` must return a non-empty `KBIndex` row for the manifest's `kb`. Queries run as section "Queries" prescribes.
+- Document text is the clone file `<KB root>/<path>`, full text with frontmatter.
+- Output on success (stdout, exit 0): `{"kb": "<kb id>", "sha": "<KBIndex.sha>", "items": [{"item": "<as given>", "documents": [{"path": "<path>", "text": "<file text>"}]}]}`, items in the order given, documents in resolution order.
+- Failure: no stdout, one JSON object on stderr `{"error": "<code>", "detail": "<text>", "item": "<item or null>"}`, and an exit status:
+
+  | Code | Exit | Meaning |
+  |---|---|---|
+  | `config` | 2 | `KB_PATH`, `NEO4J_SHELL` or `NEO4J_DATABASE` unset, no manifest, another contract major |
+  | `index` | 3 | a query fails, Neo4j is unreachable, or `status` returns no `KBIndex` row |
+  | `unresolved` | 4 | unknown resource name, a path not in the index, a resolved file missing or unreadable, or a resource resolving to zero documents |
+
+- Freshness is the caller's job: it runs `knowledge-base:update-operator` before `kb-fetch` and reads that skill's report (section "Freshness").
+
 ## Freshness
 
 - `update-operator` runs before every read: `git fetch` in the clone, then a fast-forward to `origin/<default_branch>`.
 - It compares `KBIndex.sha` with the clone's commit. On a mismatch or an empty store it creates the full-text index if missing, runs the export into the export file, and runs the load.
 - Offline, it continues on the clone's current commit and says how old that commit is.
-- Only the plugin's skills call `update-operator`.
+- The plugin's skills call `update-operator`, and so does a machine reader that follows the section "Machine reads", before it runs `kb-fetch`.
+- Its report is part of this contract; callers parse it, so its four lines never change within a major. `update-operator` returns exactly:
+
+```
+kb: <kb>
+commit: <commit>[, offline: last fetched commit is <age> old]
+index: current | loaded | unavailable — <reason>
+docs: <docs, or "-" when the index is unavailable>
+```
 
 ## Routes
 
@@ -173,7 +250,7 @@ The export command writes one JSON object to `{out}`:
   - `pr_body`: the complete pull request description, replacing `pr.template` and the default.
   - An input that breaks one of these rules stops the write before anything is written, with `invalid <input>: <reason>`.
 - `article-writer` writes every frontmatter it writes or rewrites deterministically, since team lint checks compare raw text: plain inline YAML between `---` lines, one `key: value` line per key in the given order; scalars unquoted unless YAML requires quotes; lists inline as `[a, b]`; objects inline as `{ k: v }`; never block lists or block objects.
-- `knowledge-base:update-operator` (fetch and index) is internal. `knowledge-base:setup-operator` sets up a KB once per project.
+- `knowledge-base:update-operator` (fetch and index) is called by the plugin's skills and by a machine reader (section "Freshness"). `knowledge-base:setup-operator` sets up a KB once per project.
 - A request for a KB other than the project's is refused.
 
 ## Without an index
