@@ -20,12 +20,15 @@ This contract binds every knowledge base (KB) that uses the `knowledge-base` plu
 | Import folder | `~/.kb/<kb id>/import`, mounted at `/import` in the container |
 | Query files | `~/.kb/<kb id>/import/queries/<name>.cypher` |
 | Export file | `~/.kb/<kb id>/import/kb-export.json` |
+| Neo4j settings | `~/.kb/<kb id>/neo4j.env`: APOC, file import, the import folder and the procedure allowlist, passed with `--env-file`; no credentials |
+| Writer worktrees | `~/.kb/<kb id>/worktrees/<name>`, with the writer's message files next to them as `<name>.<file>` |
+| Setup staging | `~/.kb/.incoming` (a clone before its KB id is known) and `~/.kb/setup-fragment.json` (settings to merge); both are removed by the setup |
 | Neo4j container | `neo4j-<kb id>` |
 | Docker network | `kb-<kb id>` |
 | MCP server | `kb-<kb id>` |
 
 - Every path is written as an absolute native path of the host OS (Windows, macOS or Linux).
-- File permissions are set where the OS supports them and are never relied on.
+- File permissions are set where the OS supports them. The import folder and the query files in it must be readable by the Neo4j container user, or Neo4j does not start; `setup-operator` makes them so.
 
 ## Project configuration
 
@@ -52,11 +55,11 @@ Every KB ships `kb-manifest.json` at its KB root. It is read from the read-only 
 - `kb` (required): the KB id, lower-case letters, digits and hyphens. It names the container, network, MCP server and local folder.
 - `contract` (required): the contract major version the manifest follows, `"1"` for this file.
 - `default_branch` (required): the branch every read and every write starts from, e.g. `main`.
-- `kb_root` (required): the KB root's path relative to the repository root, `.` when the KB is the whole repository. The manifest sits in that folder, and every other path in the manifest is relative to it.
+- `kb_root` (required): the KB root's path relative to the repository root, `.` when the KB is the whole repository. A leading `./` and a trailing `/` are ignored: `knowledge`, `./knowledge` and `knowledge/` name the same folder. The manifest sits in that folder, and every other path in the manifest is relative to it.
 - `export` (required): the team's export command.
   - `cmd`: the command line; it contains both placeholders.
   - `placeholders`: exactly `["{ref}", "{out}"]`.
-  - `{ref}` becomes the full commit SHA of `origin/<default_branch>` in the clone; `{out}` becomes the absolute path of the export file. Each value is substituted in double quotes.
+  - `{ref}` becomes the full commit SHA of `origin/<default_branch>` in the clone; `{out}` becomes the absolute path of a temporary file next to the export file; only after the command exits 0 is it renamed to the export file, so a load never reads a partial export. Each value is substituted in double quotes.
   - The command runs in the clone's repository root, in the team's own runtime.
 - `fulltext_analyzer` (optional): the Neo4j full-text analyzer for `kb_fulltext`, e.g. `german`. Absent means `standard-no-stop-words`.
 - `resources` (required): resource name → exactly one of
@@ -75,10 +78,11 @@ Every KB ships `kb-manifest.json` at its KB root. It is read from the read-only 
   - `answer`: one skill.
 - `pr` (required): how the writer names and opens a change.
   - `host`: `github` or `azure-devops`.
-  - `branch_pattern`: the branch name.
+  - `branch_pattern`: the branch name. When the rendered name already exists on the remote, the writer appends `-2`, `-3`, … and takes the first free name, so repeated changes to one document each get their own branch.
   - `commit_pattern`: the commit subject, or `{"add": …, "update": …}` for separate patterns for a new and a changed document.
   - `title_pattern` (optional): the pull request title. Absent means the subject of the commit the writer made, rendered from the `commit_pattern` entry it used (`add` or `update` in the object form).
   - `template` (optional): the pull request description template.
+  - `pre_commit` (optional): a command the writer runs in the worktree root after all files are written and before the commit, e.g. the KB's lint. A non-zero exit stops the write: nothing is committed or pushed, the worktree and branch are removed, and the command's output is reported. After a zero exit, every change under the KB root, including files the command generated or changed, is committed with the document, and the writer's result lists the committed paths; a change outside the KB root stops the write the same way. It follows the same shell rules as every other command: no redirection and no environment-variable expansion on the line. The team guarantees that it never executes Markdown content as code (for example no doctest-style runs of `.md` files and no YAML loader that runs tags): `knowledge-base:setup-operator` lets sessions write `.md` files in the writer's worktrees without a prompt.
   - Placeholders in `branch_pattern`, `commit_pattern` and `title_pattern`: `{ticket}` the ticket id, `{slug}`, `{summary}` a short summary of the change. Any other text is literal. A writer that needs `{ticket}` and has none asks for it.
 - Placeholder values:
   - `{slug}`: the document's title in lower case and ASCII: `ä`, `ö`, `ü`, `ß` become `ae`, `oe`, `ue`, `ss`, other letters lose their diacritics, each run of remaining characters other than `a-z` and `0-9` becomes one hyphen, and no hyphen leads or trails.
@@ -115,11 +119,12 @@ The export command writes one JSON object to `{out}`:
 - `refs` and `supersedes` exist only as relationships; an entry whose target is not a document of the export yields no relationship.
 - `(:KBIndex {kb, sha, docs})`: `kb` the loaded KB id (string), `sha` the commit it was exported at (string), `docs` the number of documents (integer).
 - Full-text index `kb_fulltext` on `Doc.title` and `Doc.body`, with the manifest's analyzer.
+- Uniqueness: one `Doc` per `kb` and `path`, one `KBIndex` per `kb`, enforced by constraints, so two loads at once cannot duplicate the graph.
 
 ## Loading
 
 - The plugin's load script reads the export file through APOC (`apoc.load.json`) and runs entirely in `cypher-shell`.
-- The full-text index is created first, in its own step (`IF NOT EXISTS`), never inside the load transaction.
+- The full-text index and the uniqueness constraints are created first, in their own step (`IF NOT EXISTS`), never inside the load transaction.
 - One transaction wipes the KB's graph, loads the export, creates the relationships and stamps `KBIndex`. A failed load keeps the old graph.
 - The load refuses, and changes nothing, when the store holds another KB, when it holds documents without a `KBIndex` stamp or without `kb`, when the export names another KB, or when the export has no documents.
 
@@ -128,9 +133,11 @@ The export command writes one JSON object to `{out}`:
 - Fixed queries live as `.cypher` files in the plugin. `update-operator` copies them to the query folder, so no command names the plugin's versioned install path.
 - A query runs as `<NEO4J_SHELL> -d <NEO4J_DATABASE> --format plain -f <query file> -P '<name> => <literal>'`. The query file is `/import/queries/<name>.cypher` with Docker and the host's query-file path with a local Neo4j. No shell redirection: PowerShell has no `<`.
 - Values reach Cypher only as `-P` parameters, never spliced into query text.
+- A `-P` literal is a double-quoted Cypher string: `\` becomes `\\`, and `"`, `'` and every character outside printable ASCII become `\uXXXX`, so no raw quote or non-ASCII character reaches the command line; a character above U+FFFF becomes its two UTF-16 surrogate escapes. `null` and numbers are bare.
+- `search` takes plain text and escapes it itself for the full-text parser; callers never escape Lucene syntax.
 - Every query filters by and checks the KB id.
 - Every query returns one column `json`, one JSON object per row (`apoc.convert.toJson`).
-- No fixed query returns `body`; document text always comes from the clone's files.
+- No fixed query returns a document's `body`; document text always comes from the clone's files. `search` returns only a short excerpt of at most 200 characters of the body next to path, title and score.
 - Fixed queries: `fulltext`, `load`, `status`, `doc`, `list`, `related`, `supersede-chain`, `search`.
 - Ad-hoc exploration uses the MCP server `kb-<kb id>` (`mcp/neo4j-cypher`, read-only). Without it, exploration uses the fixed queries `search` and `related`.
 
@@ -153,8 +160,18 @@ The export command writes one JSON object to `{out}`:
 
 - A route the manifest's `skills` omits goes to the generic skill.
 - For `write` as a map, the article type selects the skill; a type without a key goes to `*`, and without `*` to the generic skill.
+- A read passes resource names through unchanged: a name the manifest's `resources` does not list still goes to the read skill, since a team skill may own aliases and sources outside the KB.
+- A read in a project without a KB (`KB_PATH` unset, or no manifest at `KB_PATH`) goes to the one installed skill named `<plugin>:kb-provider`; with none it reports that the project has no KB, and with several it asks which one. Write and answer need the KB and report that `knowledge-base:setup-operator` sets it up.
 - A team skill calls its generic skill and may add its own logic around it.
 - `content-provider` fetches resources and returns ranked material for a question; it never answers. `answer-engine` answers from that material, cites document paths, and says so when the KB is silent. `article-writer` writes from the type's template with its required frontmatter and opens the pull request: via `gh` on GitHub, via `az` on Azure DevOps when installed, otherwise it pushes the branch and returns the link to create the pull request.
+- `article-writer` inputs: `type`, `mode` (`create` or `update`), `title`, `content` (a complete body is written as given; otherwise it fills the type's template), `path` (update), `ticket` (when a pattern needs it), values for required frontmatter keys, and these optional inputs for team writers:
+  - `frontmatter`: the document's complete frontmatter as an object, written as given; it must hold every key of `required_frontmatter`, and a `type` or `title` key in it must equal the `type` and `title` inputs.
+  - `number`, `slug` (create only): explicit `{number}` (digits) and `{slug}` (`^[a-z0-9]+(-[a-z0-9]+)*$`) values instead of derived ones; `number` only for a type whose `file_name` has `{number}`.
+  - `companion_changes`: a list of `{path, content}`: further files under the KB root, written in the same worktree and committed with the document. A path is relative to the KB root, never absolute, never with a `..` segment or a backslash, never the document itself, and appears at most once.
+  - `commit_body`: one to three lines, appended to the commit message after a blank line.
+  - `pr_body`: the complete pull request description, replacing `pr.template` and the default.
+  - An input that breaks one of these rules stops the write before anything is written, with `invalid <input>: <reason>`.
+- `article-writer` writes every frontmatter it writes or rewrites deterministically, since team lint checks compare raw text: plain inline YAML between `---` lines, one `key: value` line per key in the given order; scalars unquoted unless YAML requires quotes; lists inline as `[a, b]`; objects inline as `{ k: v }`; never block lists or block objects.
 - `knowledge-base:update-operator` (fetch and index) is internal. `knowledge-base:setup-operator` sets up a KB once per project.
 - A request for a KB other than the project's is refused.
 
@@ -172,7 +189,7 @@ Reads work from the read-only clone and the manifest alone when Docker, Neo4j or
 ## Isolation
 
 - One Neo4j instance, network, MCP server and local folder per KB, all named by the KB id.
-- Neo4j ports are bound to `127.0.0.1` only.
+- The Neo4j container publishes no host port and sits on the internal Docker network `kb-<kb id>`, which has no route outside Docker; `cypher-shell` reaches it through `docker exec`, the MCP server through that network. APOC is limited to the procedures the plugin uses, and file loads to the import folder. A local Neo4j outside Docker meets the same: Bolt on `127.0.0.1` only, no outbound network access for the Neo4j process, the same procedure allowlist (`dbms.security.procedures.allowlist`), and file loads confined to the import folder.
 - The load refuses a store holding another KB; every query is bound to the KB id.
 - The orchestrator serves only the KB of the project's `KB_PATH`.
 

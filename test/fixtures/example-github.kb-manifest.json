@@ -45,6 +45,7 @@
     "host": "github",
     "branch_pattern": "docs/{slug}",
     "commit_pattern": "docs: {summary}",
-    "template": "blueprints/pull-request.md"
+    "template": "blueprints/pull-request.md",
+    "pre_commit": "node tools/lint.mjs"
   }
 }
