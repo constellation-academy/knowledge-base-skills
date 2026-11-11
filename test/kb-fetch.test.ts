@@ -114,3 +114,106 @@ describe("plain-output row parsing", () => {
     expect(rows[0].title).toBe(title);
   });
 });
+
+describe("resolution and output", () => {
+  const ok = (args: string[], e = env()) => {
+    const r = main(args, e);
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+    return JSON.parse(r.stdout);
+  };
+  const paths = (o: any, i = 0) => o.items[i].documents.map((d: any) => d.path);
+  test("file resource: full text incl. frontmatter", () => {
+    const o = ok(["glossary"]);
+    expect(o.items[0].item).toBe("glossary");
+    expect(o.items[0].documents).toEqual([{ path: "glossary.md", text: readFileSync(join(kbPath, "glossary.md"), "utf8") }]);
+    expect(o.items[0].documents[0].text.startsWith("---\n")).toBe(true);
+  });
+  test("type resource: sorted, no duplicates", () => {
+    expect(paths(ok(["decisions"]))).toEqual(["decisions/0001-first.md", "decisions/0002-second.md"]);
+    const m = JSON.parse(readFileSync(join(kbPath, "kb-manifest.json"), "utf8"));
+    const d = join(root, "dup", "fx", "repo");
+    cpSync(kbPath, d, { recursive: true });
+    m.resources.both = { type: ["adr", "adr", "glossary"] };
+    writeFileSync(join(d, "kb-manifest.json"), JSON.stringify(m));
+    expect(paths(ok(["both"], env({ KB_PATH: d })))).toEqual(["decisions/0001-first.md", "decisions/0002-second.md", "glossary.md"]);
+  });
+  test("assembled folder: parts in order", () => {
+    expect(paths(ok(["guide"]))).toEqual(["guide/01-intro.md", "guide/02-usage.md"]);
+  });
+  test("plain folder: direct children, no index.md", () => {
+    expect(paths(ok(["notes"]))).toEqual(["notes/a.md", "notes/b.md"]);
+  });
+  test("document path and folder path", () => {
+    const o = ok(["notes/a.md", "guide/", "notes/"]);
+    expect(paths(o, 0)).toEqual(["notes/a.md"]);
+    expect(paths(o, 1)).toEqual(["guide/01-intro.md", "guide/02-usage.md"]);
+    expect(paths(o, 2)).toEqual(["notes/a.md", "notes/b.md"]);
+  });
+  test("unknown resource -> 4 with item", () => {
+    const r = main(["glossary", "nope"], env());
+    expect(r.code).toBe(4);
+    expect(r.stdout).toBe("");
+    expect(err(r)).toMatchObject({ error: "unresolved", item: "nope" });
+  });
+  test("path not in index -> 4", () => {
+    const r = main(["notes/zzz.md"], env());
+    expect(r.code).toBe(4);
+    expect(err(r).item).toBe("notes/zzz.md");
+  });
+  test("file missing on disk -> 4", () => {
+    const d = join(root, "miss", "fx", "repo");
+    cpSync(kbPath, d, { recursive: true });
+    rmSync(join(d, "glossary.md"));
+    const r = main(["glossary"], env({ KB_PATH: d }));
+    expect(r.code).toBe(4);
+    expect(r.stdout).toBe("");
+    expect(err(r).detail).toContain("glossary.md");
+  });
+  test("resource with zero documents -> 4", () => {
+    const d = join(root, "zero", "fx", "repo");
+    cpSync(kbPath, d, { recursive: true });
+    const m = JSON.parse(readFileSync(join(d, "kb-manifest.json"), "utf8"));
+    m.resources.empty = { type: ["nothing"] };
+    m.resources.emptydir = { folder: "nowhere/" };
+    writeFileSync(join(d, "kb-manifest.json"), JSON.stringify(m));
+    for (const n of ["empty", "emptydir"]) {
+      const r = main([n], env({ KB_PATH: d }));
+      expect(r.code).toBe(4);
+      expect(err(r).item).toBe(n);
+    }
+  });
+  test("query failure mid-resolution -> 3, no stdout", () => {
+    const shell = join(root, "flaky.sh");
+    writeFileSync(shell, `#!/bin/sh\ncase "$*" in *list.cypher*) echo ERR_LIST >&2; exit 1;; esac\nexec ${SHELL} "$@"\n`, { mode: 0o755 });
+    const r = main(["glossary", "decisions"], env({ NEO4J_SHELL: shell }));
+    expect(r.code).toBe(3);
+    expect(r.stdout).toBe("");
+    expect(err(r).error).toBe("index");
+  });
+  test("items keep given order, sha from status", () => {
+    const o = ok(["notes", "glossary"]);
+    expect(o.kb).toBe("fx");
+    expect(o.sha).toBe("0123456789abcdef0123456789abcdef01234567");
+    expect(o.items.map((i: any) => i.item)).toEqual(["notes", "glossary"]);
+  });
+  test("table agreement with the contract's worked example", () => {
+    const md = readFileSync(join(import.meta.dir, "../plugins/knowledge-base/contracts/knowledge-base.v1.md"), "utf8");
+    const block = (marker: string) => JSON.parse(new RegExp("\\(`" + marker + "`\\):\\s*```json\\n([\\s\\S]*?)```").exec(md)![1]);
+    block("resolution-manifest");
+    const expected = block("resolution-expected") as Record<string, string[]>;
+    const items = Object.keys(expected);
+    expect(items.length).toBeGreaterThan(0);
+    const o = ok(items);
+    items.forEach((it, i) => expect(paths(o, i)).toEqual(expected[it]));
+  });
+  test("CLI: large output through a pipe is not truncated", async () => {
+    const d = join(root, "big", "fx", "repo");
+    cpSync(kbPath, d, { recursive: true });
+    writeFileSync(join(d, "glossary.md"), "x".repeat(300_000));
+    const p = Bun.spawn([BUN, join(import.meta.dir, "../plugins/knowledge-base/scripts/kb-fetch.ts"), "glossary"], { env: { ...process.env, ...env({ KB_PATH: d }) } as any, stdout: "pipe", stderr: "pipe" });
+    const out = await new Response(p.stdout).text();
+    expect(await p.exited).toBe(0);
+    expect(JSON.parse(out).items[0].documents[0].text.length).toBe(300_000);
+  });
+});

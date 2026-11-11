@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // kb-fetch: machine read of the KB through the Neo4j index (contract: "Machine reads").
 import { readFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve as resolvePath } from "node:path";
 
 export type Cfg = { kbPath: string; kb: string; shell: string[]; db: string; queryDir: string; env?: Record<string, string | undefined> };
 
@@ -36,7 +36,7 @@ export function loadConfig(env: Record<string, string | undefined>): Cfg {
     if (!v) throw new FetchError("config", `${k} is unset`);
     return v;
   };
-  const kbPath = resolve(need("KB_PATH"));
+  const kbPath = resolvePath(need("KB_PATH"));
   const shellText = need("NEO4J_SHELL");
   const db = need("NEO4J_DATABASE");
   let m: any;
@@ -99,12 +99,68 @@ export function status(cfg: Cfg): { kb: string; sha: string; docs: unknown } {
   return row;
 }
 
+export type Manifest = { kb: string; resources?: Record<string, { file?: string; type?: string[]; folder?: string }> };
+
+function loadManifest(cfg: Cfg): Manifest {
+  return JSON.parse(readFileSync(join(cfg.kbPath, "kb-manifest.json"), "utf8"));
+}
+
+const asStrings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+
+function resolveFile(item: string, path: string, cfg: Cfg): string[] {
+  const rows = runQuery("doc", { kb: cfg.kb, path }, cfg) as any[];
+  if (!rows[0]) throw new FetchError("unresolved", `not in the index of KB ${cfg.kb}: ${path}`, item);
+  return [path];
+}
+
+function resolveFolder(item: string, folder: string, cfg: Cfg): string[] {
+  const f = folder.endsWith("/") ? folder : folder + "/";
+  const row = (runQuery("doc", { kb: cfg.kb, path: f }, cfg) as any[])[0];
+  const parts = asStrings(row?.parts);
+  if (parts.length > 0) return parts;
+  const rows = runQuery("list", { kb: cfg.kb, type: null }, cfg) as any[];
+  return rows
+    .map((r) => String(r.path))
+    .filter((p) => p.startsWith(f) && p.endsWith(".md") && !p.slice(f.length).includes("/") && p.slice(f.length) !== "index.md")
+    .sort();
+}
+
+function resolveType(types: string[], cfg: Cfg): string[] {
+  const all = new Set<string>();
+  for (const t of types) for (const r of runQuery("list", { kb: cfg.kb, type: t }, cfg) as any[]) all.add(String(r.path));
+  return [...all].sort();
+}
+
+export function resolve(item: string, cfg: Cfg, manifest: Manifest): string[] {
+  let docs: string[];
+  if (!item.includes("/") && !item.includes(".")) {
+    const res = Object.hasOwn(manifest.resources ?? {}, item) ? manifest.resources![item] : undefined;
+    if (!res)
+      throw new FetchError("unresolved", `not a resource of KB ${cfg.kb}: ${item}; resources: ${Object.keys(manifest.resources ?? {}).join(", ")}`, item);
+    if (typeof res.file === "string") docs = resolveFile(item, res.file, cfg);
+    else if (Array.isArray(res.type)) docs = resolveType(asStrings(res.type), cfg);
+    else if (typeof res.folder === "string") docs = resolveFolder(item, res.folder, cfg);
+    else throw new FetchError("unresolved", `resource ${item} has no file, type or folder`, item);
+  } else docs = item.endsWith("/") ? resolveFolder(item, item, cfg) : resolveFile(item, item, cfg);
+  if (docs.length === 0) throw new FetchError("unresolved", `resolves to no documents: ${item}`, item);
+  return docs;
+}
+
+function readDoc(item: string, path: string, cfg: Cfg): { path: string; text: string } {
+  try {
+    return { path, text: readFileSync(join(cfg.kbPath, path), "utf8") };
+  } catch {
+    throw new FetchError("unresolved", `not found: ${path}`, item);
+  }
+}
+
 export function main(argv: string[], env: Record<string, string | undefined>): { code: number; stdout: string; stderr: string } {
   try {
     const cfg = loadConfig(env);
-    status(cfg);
-    // Task 3 adds resolution and output here.
-    return { code: 0, stdout: "", stderr: "" };
+    const st = status(cfg);
+    const manifest = loadManifest(cfg);
+    const items = argv.map((item) => ({ item, documents: resolve(item, cfg, manifest).map((p) => readDoc(item, p, cfg)) }));
+    return { code: 0, stdout: JSON.stringify({ kb: cfg.kb, sha: st.sha, items }) + "\n", stderr: "" };
   } catch (e) {
     if (e instanceof FetchError)
       return { code: e.exit, stdout: "", stderr: JSON.stringify({ error: e.code, detail: e.detail, item: e.item }) + "\n" };
@@ -114,7 +170,8 @@ export function main(argv: string[], env: Record<string, string | undefined>): {
 
 if (import.meta.main) {
   const r = main(process.argv.slice(2), process.env);
+  // Let stdout drain (large output into a pipe): set exitCode instead of exiting.
   process.stdout.write(r.stdout);
   process.stderr.write(r.stderr);
-  process.exit(r.code);
+  process.exitCode = r.code;
 }
