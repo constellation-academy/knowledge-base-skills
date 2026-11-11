@@ -65,7 +65,7 @@ Every KB ships `kb-manifest.json` at its KB root. It is read from the read-only 
 - `resources` (required): resource name → exactly one of
   - `{"file": "<path>"}`: one file;
   - `{"type": ["<doc type>", …]}`: every document of these types;
-  - `{"folder": "<path>/"}`: an assembled multi-part document, its parts in order.
+  - `{"folder": "<path>/"}`: either an assembled multi-part document, its parts in order, or a plain folder of documents. A folder the index holds as a document with `parts` is read as those parts; any other folder, and every folder without an index, is its Markdown files except `index.md`, in file-name order, read from the clone.
   - Common names, used where a KB has them: `glossary`, `decisions`, `catalog`.
 - `article_types` (required): document type → how a new document of that type is written.
   - `folder`: the folder new documents of this type go into.
@@ -166,6 +166,7 @@ The export command writes one JSON object to `{out}`:
 - `content-provider` fetches resources and returns ranked material for a question; it never answers. `answer-engine` answers from that material, cites document paths, and says so when the KB is silent. `article-writer` writes from the type's template with its required frontmatter and opens the pull request: via `gh` on GitHub, via `az` on Azure DevOps when installed, otherwise it pushes the branch and returns the link to create the pull request.
 - `article-writer` inputs: `type`, `mode` (`create` or `update`), `title`, `content` (a complete body is written as given; otherwise it fills the type's template), `path` (update), `ticket` (when a pattern needs it), values for required frontmatter keys, and these optional inputs for team writers:
   - `frontmatter`: the document's complete frontmatter as an object, written as given; it must hold every key of `required_frontmatter`, and a `type` or `title` key in it must equal the `type` and `title` inputs.
+  - `folder` (create only): a folder relative to the KB root that replaces the type's `folder` for this document; a leading `./` is stripped and a missing trailing `/` is added before it is checked or used, as for `kb_root`; never absolute, never with a `..` segment or a backslash, and it must exist in the clone. An `update` without `path` looks for the document of that type and title in the type's `folder` first, then anywhere under the KB root.
   - `number`, `slug` (create only): explicit `{number}` (digits) and `{slug}` (`^[a-z0-9]+(-[a-z0-9]+)*$`) values instead of derived ones; `number` only for a type whose `file_name` has `{number}`.
   - `companion_changes`: a list of `{path, content}`: further files under the KB root, written in the same worktree and committed with the document. A path is relative to the KB root, never absolute, never with a `..` segment or a backslash, never the document itself, and appears at most once.
   - `commit_body`: one to three lines, appended to the commit message after a blank line.
