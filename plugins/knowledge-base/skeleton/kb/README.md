@@ -53,7 +53,7 @@ Every `.md` file except `index.md` starts with:
 - `description`: one to two sentences, used verbatim in the catalogs
 - `tags`: an inline array of lower-case words, e.g. `[onboarding, billing]`; reuse tags that already exist
 
-ADRs and PDRs additionally require `status` (`Proposed | Accepted | Superseded | Postponed`) and `date` (`YYYY-MM-DD`).
+ADRs<!-- section:pdr --> and PDRs<!-- /section:pdr --> additionally require `status` (`Proposed | Accepted | Superseded | Postponed`) and `date` (`YYYY-MM-DD`).
 
 ## Generated indexes
 
