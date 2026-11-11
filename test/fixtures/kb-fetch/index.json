@@ -1,0 +1,14 @@
+{
+  "kb": "fx",
+  "sha": "0123456789abcdef0123456789abcdef01234567",
+  "docs": [
+    { "path": "decisions/0001-first.md", "type": "adr", "parts": [] },
+    { "path": "decisions/0002-second.md", "type": "adr", "parts": [] },
+    { "path": "glossary.md", "type": "glossary", "parts": [] },
+    { "path": "guide/", "type": "guide", "parts": ["guide/01-intro.md", "guide/02-usage.md"] },
+    { "path": "notes/a.md", "type": "note", "parts": [] },
+    { "path": "notes/b.md", "type": "note", "parts": [] },
+    { "path": "notes/deep/c.md", "type": "note", "parts": [] },
+    { "path": "notes/index.md", "type": "note", "parts": [] }
+  ]
+}

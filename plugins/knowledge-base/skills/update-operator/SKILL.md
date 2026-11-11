@@ -59,7 +59,7 @@ Compare with the file tools only; no shell command reads or compares these files
 
 ### 7. Report
 
-Return exactly this block to the caller:
+Return exactly this block to the caller. The block is fixed by the contract's section "Freshness" (`../../contracts/knowledge-base.v1.md`): callers parse it, so its lines and their wording never change:
 
 ```
 kb: <kb>

@@ -1,0 +1,17 @@
+{
+  "kb": "fx",
+  "contract": "1",
+  "default_branch": "main",
+  "kb_root": ".",
+  "export": { "cmd": "true {ref} {out}", "placeholders": ["{ref}", "{out}"] },
+  "resources": {
+    "glossary": { "file": "glossary.md" },
+    "decisions": { "type": ["adr"] },
+    "guide": { "folder": "guide/" },
+    "notes": { "folder": "notes/" }
+  },
+  "article_types": {
+    "adr": { "folder": "decisions/", "template": "templates/adr.md", "required_frontmatter": ["type", "title"] }
+  },
+  "pr": { "host": "github", "branch_pattern": "kb/{slug}", "commit_pattern": "docs: {summary}" }
+}
