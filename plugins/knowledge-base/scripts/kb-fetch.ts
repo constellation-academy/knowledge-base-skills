@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 // kb-fetch: machine read of the KB through the Neo4j index (contract: "Machine reads").
-import { readFileSync } from "node:fs";
-import { basename, dirname, join, resolve as resolvePath } from "node:path";
+import { readFileSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve as resolvePath, sep } from "node:path";
 
-export type Cfg = { kbPath: string; kb: string; shell: string[]; db: string; queryDir: string; env?: Record<string, string | undefined> };
+export type Cfg = { kbPath: string; kb: string; shell: string[]; docker: boolean; db: string; queryDir: string; env?: Record<string, string | undefined> };
 
 export class FetchError extends Error {
   exit: 2 | 3 | 4;
@@ -56,12 +56,13 @@ export function loadConfig(env: Record<string, string | undefined>): Cfg {
   if (basename(clone) !== "repo" || basename(dirname(clone)) !== m.kb)
     throw new FetchError("config", `KB_PATH is not inside a read-only clone at a folder ${m.kb}/repo`);
   const shell = splitShell(shellText);
-  const queryDir = shellText.startsWith("docker exec") ? "/import/queries" : join(dirname(clone), "import", "queries");
-  return { kbPath, kb: m.kb, shell, db, queryDir, env };
+  const docker = shell[0] === "docker" && shell[1] === "exec";
+  const queryDir = docker ? "/import/queries" : join(dirname(clone), "import", "queries");
+  return { kbPath, kb: m.kb, shell, docker, db, queryDir, env };
 }
 
 export function runQuery(name: string, params: Record<string, string | number | null>, cfg: Cfg): object[] {
-  const file = cfg.queryDir === "/import/queries" ? `/import/queries/${name}.cypher` : join(cfg.queryDir, `${name}.cypher`);
+  const file = cfg.docker ? `/import/queries/${name}.cypher` : join(cfg.queryDir, `${name}.cypher`);
   const argv = [...cfg.shell, "-d", cfg.db, "--format", "plain", "-f", file];
   for (const [k, v] of Object.entries(params)) argv.push("-P", `${k} => ${escapeLiteral(v)}`);
   let r;
@@ -146,8 +147,24 @@ export function resolve(item: string, cfg: Cfg, manifest: Manifest): string[] {
 }
 
 function readDoc(item: string, path: string, cfg: Cfg): { path: string; text: string } {
+  const inside = (base: string, p: string) => {
+    const rel = relative(base, p);
+    return rel !== "" && rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel);
+  };
+  const outside = () => new FetchError("unresolved", `path is outside the KB root: ${path}`, item);
+  let file: string;
   try {
-    return { path, text: readFileSync(join(cfg.kbPath, path), "utf8") };
+    const base = realpathSync(cfg.kbPath);
+    const target = resolvePath(base, path);
+    if (!inside(base, target)) throw outside();
+    file = realpathSync(target);
+    if (!inside(base, file)) throw outside();
+  } catch (e) {
+    if (e instanceof FetchError) throw e;
+    throw new FetchError("unresolved", `not found: ${path}`, item);
+  }
+  try {
+    return { path, text: readFileSync(file, "utf8") };
   } catch {
     throw new FetchError("unresolved", `not found: ${path}`, item);
   }
@@ -155,6 +172,7 @@ function readDoc(item: string, path: string, cfg: Cfg): { path: string; text: st
 
 export function main(argv: string[], env: Record<string, string | undefined>): { code: number; stdout: string; stderr: string } {
   try {
+    if (argv.length === 0) throw new FetchError("config", "no items");
     const cfg = loadConfig(env);
     const st = status(cfg);
     const manifest = loadManifest(cfg);
@@ -163,7 +181,8 @@ export function main(argv: string[], env: Record<string, string | undefined>): {
   } catch (e) {
     if (e instanceof FetchError)
       return { code: e.exit, stdout: "", stderr: JSON.stringify({ error: e.code, detail: e.detail, item: e.item }) + "\n" };
-    throw e;
+    const detail = String((e as Error)?.message ?? e).split("\n")[0];
+    return { code: 1, stdout: "", stderr: JSON.stringify({ error: "internal", detail, item: null }) + "\n" };
   }
 }
 
