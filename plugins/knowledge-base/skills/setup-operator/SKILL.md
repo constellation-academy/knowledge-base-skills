@@ -292,7 +292,7 @@ The new `env` and the MCP server reach only new sessions, so each check runs in 
    ```
 
    Passes when the state is `ONLINE`. `POPULATING`: run this check once more after check 3, and only that second result counts. No row, another state or a tool error: the reason is `kb_fulltext is <state, or "missing">`, or the error line. No MCP server: the reason is `the MCP server kb-<kb> is not registered`.
-3. **Explore through MCP.** `<title>`: the frontmatter `title`, or else the first `# ` heading, of any Markdown document under `<KB_PATH>` (Glob tool, then Read tool).
+3. **Explore through MCP.** `<title>`: the frontmatter `title`, or else the first `# ` heading, of a Markdown document under `<KB_PATH>` (Glob tool, then Read tool), taking the first document in Glob order whose title holds only letters, digits, spaces and `-` `.` `,` `:`. No character among them is special inside double quotes in bash, zsh or PowerShell, so the title can go on the command line. No title qualifies: the check fails with `no document title fits on a command line; run "explore: kb <a title>" in an interactive session in <project>`.
 
    ```
    claude -p "Use the knowledge-base:access-orchestrator skill: explore: kb <title>"
