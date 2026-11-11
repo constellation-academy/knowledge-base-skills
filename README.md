@@ -19,6 +19,8 @@ Claude Code marketplace with one plugin, `knowledge-base`: agent skills that rea
 
 Without Docker or Neo4j, reads work from the read-only clone; exploring and answering need the KB index.
 
+**Machine reads: `kb-fetch`.** A deterministic, index-only read for machine callers such as CRAFT, with no skill and no judgment. Run `bun <plugin dir>/scripts/kb-fetch.ts <item> [<item> ...]`, where each item is a resource name or a document path. It prints JSON on stdout and exits 0; on failure it prints one JSON error on stderr and exits 2 (config), 3 (index) or 4 (unresolved). The caller runs `update-operator` first. See the contract section [Machine reads](plugins/knowledge-base/contracts/knowledge-base.v1.md#machine-reads).
+
 ## Install
 
 In Claude Code:
