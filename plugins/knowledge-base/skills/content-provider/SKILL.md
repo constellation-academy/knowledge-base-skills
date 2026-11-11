@@ -34,13 +34,13 @@ Resolve each item to an ordered list of documents. Paths are relative to `<KB ro
 |---|---|---|
 | `{"file": p}` resource | the file `p` | the file `p` |
 | `{"type": [t, …]}` resource | query `list` once per type `t`, take each row's `path` | every Markdown file under `<KB root>` whose frontmatter `type` is one of the types, except the `template` files named in `article_types` (Grep tool) |
-| `{"folder": f}` resource | query `doc` with `path` = `f`; read the row's `parts` in order | the folder's Markdown files except `index.md`, in file-name order |
+| `{"folder": f}` resource | query `doc` with `path` = `f`: a row with non-empty `parts` is an assembled document, read its `parts` in order; no row, a null row, or no `parts` means a plain folder, resolved as in the next column | the folder's Markdown files except `index.md`, in file-name order, read from the clone |
 | document path ending in `/` | as a folder resource | as a folder resource |
 | other document path | that file | that file |
 
 - A `type` resource lists its documents sorted by path, whichever source found them.
 - A frontmatter `type` counts only inside the leading `---` block of a file, not in its body.
-- A `list` or `doc` query fails, or `doc` returns no row or empty `parts`: resolve that item as in the "Index unavailable" column.
+- A `list` or `doc` query fails, or `doc` returns no row, a null row, or a row without `parts` or with empty `parts`: resolve that item as in the "Index unavailable" column. This is the normal case for a KB whose folder resources are plain folders of documents, not a failure, so it adds no note.
 - An unknown resource name: `not a resource of KB <kb>: <name>; resources: <names in the manifest>`. A missing file: `not found: <path>`. Either affects only that item.
 
 Output:

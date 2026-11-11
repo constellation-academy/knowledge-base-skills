@@ -246,6 +246,7 @@ describe("doc, list, related, supersede-chain", () => {
     expect(rows(await query("list", { kb: "t", type: null })).length).toBe(5);
     expect(rows(await query("list", { kb: "t", type: "nope" }))).toEqual([]);
     expect(rows(await query("doc", { kb: "t", path: "nope.md" }))).toEqual([]);
+    expect(rows(await query("doc", { kb: "t", path: "adr/" }))).toEqual([]);
   });
 
   test("builds REFERENCES and SUPERSEDES edges between existing docs only", async () => {

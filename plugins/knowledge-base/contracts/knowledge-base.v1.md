@@ -65,7 +65,7 @@ Every KB ships `kb-manifest.json` at its KB root. It is read from the read-only 
 - `resources` (required): resource name → exactly one of
   - `{"file": "<path>"}`: one file;
   - `{"type": ["<doc type>", …]}`: every document of these types;
-  - `{"folder": "<path>/"}`: an assembled multi-part document, its parts in order.
+  - `{"folder": "<path>/"}`: either an assembled multi-part document, its parts in order, or a plain folder of documents. A folder the index holds as a document with `parts` is read as those parts; any other folder, and every folder without an index, is its Markdown files except `index.md`, in file-name order, read from the clone.
   - Common names, used where a KB has them: `glossary`, `decisions`, `catalog`.
 - `article_types` (required): document type → how a new document of that type is written.
   - `folder`: the folder new documents of this type go into.
