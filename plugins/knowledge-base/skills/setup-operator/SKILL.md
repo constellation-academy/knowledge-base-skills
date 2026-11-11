@@ -168,7 +168,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 
 ## 4. Write the project settings
 
-1. Write `<kb folder>/neo4j.env` with the file tools: the lines of `<scripts>/neo4j.env` exactly (APOC, file import confined to `/import`, the procedure allowlist), followed by the lines a recreate adds (step 3a.7).
+1. Write `<kb folder>/neo4j.env` with the file tools, unless its text already equals what this step would write: the lines of `<scripts>/neo4j.env` exactly (APOC, file import confined to `/import`, the procedure allowlist), followed by the lines a recreate adds (step 3a.7).
 
 2. Merge (section "Merge into the settings") a fragment with:
    - `env`: `KB_PATH` = `<KB_PATH>`, `NEO4J_SHELL` = `<NEO4J_SHELL>`, `NEO4J_USERNAME` = `neo4j`, `NEO4J_DATABASE` = `neo4j`; for a new container, or a recreate that turns authentication on, also `NEO4J_PASSWORD` = `__KB_PASSWORD__`, a placeholder that step 5.1 replaces.
@@ -285,14 +285,16 @@ The new `env` and the MCP server reach only new sessions, so each check runs in 
 
      The grant holds for that one session only, and it names the export with its commit, so it covers no other export run.
    - Passes when the reply's `index:` line is `loaded` or `current`, its `commit:` line starts with `<commit>`, and its `docs:` line is a number of at least 1. Otherwise the reason is the reply's `index:` line, `the index holds no documents`, or `the index is at <reply commit>, the clone at <commit>`.
-2. **Full-text index.** With the MCP server registered (step 6):
+2. **Full-text index and test title.** With the MCP server registered (step 6):
 
    ```
-   claude -p "Run this query with the tool mcp__kb-<kb>__read_neo4j_cypher and reply with its result rows only: SHOW FULLTEXT INDEXES YIELD name, state, populationPercent WHERE name = 'kb_fulltext' RETURN state, populationPercent" --allowedTools 'mcp__kb-<kb>__read_neo4j_cypher'
+   claude -p "Run these two queries with the tool mcp__kb-<kb>__read_neo4j_cypher and reply with the result rows of each, under the headings fulltext and title: SHOW FULLTEXT INDEXES YIELD name, state, populationPercent WHERE name = 'kb_fulltext' RETURN state, populationPercent; MATCH (d:Doc {kb: '<kb>'}) WHERE d.title <> '' AND all(c IN split(d.title, '') WHERE toLower(c) <> toUpper(c) OR (c >= '0' AND c <= '9') OR c IN [' ', '.', ',', ':', '-']) RETURN d.title AS title ORDER BY d.path LIMIT 1" --allowedTools 'mcp__kb-<kb>__read_neo4j_cypher'
    ```
 
-   Passes when the state is `ONLINE`. `POPULATING`: run this check once more after check 3, and only that second result counts. No row, another state or a tool error: the reason is `kb_fulltext is <state, or "missing">`, or the error line. No MCP server: the reason is `the MCP server kb-<kb> is not registered`.
-3. **Explore through MCP.** `<title>`: the frontmatter `title`, or else the first `# ` heading, of a Markdown document under `<KB_PATH>` (Glob tool, then Read tool), taking the first document in Glob order whose title holds only letters, digits, spaces and `-` `.` `,` `:`. No character among them is special inside double quotes in bash, zsh or PowerShell, so the title can go on the command line. No title qualifies: the check fails with `no document title fits on a command line; run "explore: kb <a title>" in an interactive session in <project>`.
+   The second query picks `<title>` for check 3: the title of the first document by path that holds only letters with an upper and a lower case, digits, spaces and `-` `.` `,` `:`. None of them is special inside double quotes in bash, zsh or PowerShell, so the title can go on the command line; the query itself holds no `$`, backslash or double quote for the same reason. Never pick the title any other way.
+
+   Passes when the state under `fulltext` is `ONLINE`. `POPULATING`: run this check once more after check 3, and only that second state counts. No row, another state or a tool error: the reason is `kb_fulltext is <state, or "missing">`, or the error line. No MCP server: the reason is `the MCP server kb-<kb> is not registered`.
+3. **Explore through MCP.** No row under `title` in check 2: the check fails with `no document title fits on a command line; run "explore: kb <a title>" in an interactive session in <project>`. Otherwise:
 
    ```
    claude -p "Use the knowledge-base:access-orchestrator skill: explore: kb <title>"
