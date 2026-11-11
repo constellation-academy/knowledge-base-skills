@@ -48,7 +48,7 @@ Routes one request to exactly one of three routes, read, write or answer, and re
 |---|---|---|
 | read | inline: invoke the skill with the Skill tool | `fetch: kb <resource names or paths>` for named content, else `explore: kb <the request>` |
 | answer | one agent | the question, in the requester's words |
-| write | one agent | `type`, `mode` (`create` or `update`), `title`, the content as the requester stated it, `path` for an update, `ticket` when given |
+| write | one agent | `type`, `mode` (`create` or `update`), `title`, the content as the requester stated it, `path` for an update, `folder` for a create when the request names the folder, `ticket` when given |
 
 A read passes resource names through unchanged, also a name the manifest's `resources` does not list: the read skill owns aliases and sources outside the KB, and reports a name it does not know. The write input lists what a requester gives; team writers add the generic writer's further inputs (the contract's section "Routes").
 

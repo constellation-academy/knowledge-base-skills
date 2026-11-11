@@ -17,13 +17,14 @@ The contract's section "Routes" lists the same inputs for team writers.
 - `mode`: `create` or `update`
 - `title`: for `update`, absent means the document's current frontmatter `title`, read from the clone
 - `content`: the document's text, or for `update` the change to make, as the requester stated it; a complete body is written as given
-- `path`: `update` only, the document's path relative to the KB root; absent means the one document in the type's `folder` whose frontmatter `title` matches the request, found in the clone
+- `path`: `update` only, the document's path relative to the KB root; absent means the one document of this type whose frontmatter `title` matches the request, found in the clone: first in the type's `folder`, then, when none is there, anywhere under the KB root. No match or several matches: ask for `path`, or return `needs: path`.
 - `ticket`: when a pattern contains `{ticket}`
 - values for required frontmatter keys, where the requester gave them
 - Optional, mostly from team writers:
   - `frontmatter`: an object holding the document's complete frontmatter, composed by the caller. It is written as given, keys in the given order; it must hold every key of `required_frontmatter`.
   - `number`: `create` only, the `{number}` value, digits only; absent means derived per the contract.
   - `slug`: `create` only, the `{slug}` value, matching `^[a-z0-9]+(-[a-z0-9]+)*$`; absent means derived from `title` per the contract.
+  - `folder`: `create` only, a folder relative to the KB root, ending in `/`, that replaces the type's `folder` for this document, for a KB that keeps one article type in several folders. Absent means the type's `folder`.
   - `companion_changes`: a list of `{path, content}`: further files written in the same worktree and committed with the document, such as an index entry. `path` is relative to the KB root and `content` is the file's complete new text.
   - `commit_body`: one to three lines, appended to the commit message after a blank line.
   - `pr_body`: the complete pull request description; it replaces the template and the default description.
@@ -33,6 +34,7 @@ The contract's section "Routes" lists the same inputs for team writers.
 **An invalid input** stops the run before anything is written, with `invalid <input>: <reason>`:
 - `frontmatter` lacks a key of `required_frontmatter`, or is not an object.
 - `number` or `slug` does not match its form, or is given for `update`.
+- `folder` is given for `update`, is absolute, contains a `..` segment or a backslash, or is not an existing folder under the KB root in the clone.
 - `number` is given while the type's `file_name` has no `{number}`.
 - `frontmatter` holds a `type` other than the `type` input, or a `title` other than the `title` input.
 - A `companion_changes` path is absolute, contains a `..` segment or a backslash, or resolves to the document's own path; or a path appears twice.
@@ -46,7 +48,7 @@ The contract's section "Routes" lists the same inputs for team writers.
 
 1. Follow "Locate the KB" in `runtime.md`; if it stops, return its message.
 2. Invoke `knowledge-base:update-operator` (Skill tool), so `origin/<default>` is current. Its `index` line does not matter here.
-3. Look up `type` in `article_types`: `folder`, `template`, `required_frontmatter`, `file_name` (absent: `{slug}.md`). An unknown type: return `not an article type of KB <kb>: <type>; types: <keys>` and stop.
+3. Look up `type` in `article_types`: `folder`, `template`, `required_frontmatter`, `file_name` (absent: `{slug}.md`). A `folder` input replaces the type's `folder` in every later step. An unknown type: return `not an article type of KB <kb>: <type>; types: <keys>` and stop.
 4. Render the placeholders per the contract: `{slug}` from the `slug` input or else from `title`, `{summary}` as one short line describing the change, `{ticket}` from the input.
    - Branch: `pr.branch_pattern`. It must match `^[A-Za-z0-9._/-]+$` and pass `git -C "<clone>" check-ref-format --branch "<branch>"`; otherwise ask for a ticket id or title that gives a valid branch name.
    - Commit subject: `pr.commit_pattern`, or its `add` entry for `create` and `update` entry for `update`. The commit message is the subject, followed by a blank line and `commit_body` when given.
