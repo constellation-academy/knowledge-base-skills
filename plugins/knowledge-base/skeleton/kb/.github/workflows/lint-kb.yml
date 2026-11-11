@@ -1,0 +1,23 @@
+name: Lint KB
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Frontmatter contract (bun scripts/lint-kb.ts)
+        run: bun scripts/lint-kb.ts
+
+      - name: Script unit tests (bun test scripts/)
+        run: bun test scripts/
