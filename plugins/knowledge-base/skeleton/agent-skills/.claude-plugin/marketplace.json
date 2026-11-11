@@ -1,0 +1,17 @@
+{
+  "name": "{{kb}}-agent-skills",
+  "owner": {
+    "name": "{{team}}"
+  },
+  "metadata": {
+    "description": "Reusable agent skills for {{team}} projects",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "{{kb}}-workflow",
+      "source": "./plugins/{{kb}}-workflow",
+      "description": "{{team}} project-workflow skills ({{team}} Knowledge Base read, write and answer routes)"
+    }
+  ]
+}

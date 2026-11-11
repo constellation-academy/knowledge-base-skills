@@ -9,6 +9,7 @@ import {
   ALL_SECTIONS,
   buildManifest,
   renderKb,
+  renderSkills,
   validateOptions,
   type InitOptions,
   type Section,
@@ -181,7 +182,46 @@ describe("renderKb", () => {
   });
 });
 
+describe("renderSkills", () => {
+  test("renders the team plugin with exactly the three team skills", () => {
+    const out = join(tmp, "skills");
+    renderSkills(opts({ team: "Team Ä & Co." }), out);
+    const skillsDir = join(out, "plugins", "tka-workflow", "skills");
+    expect(readdirSync(skillsDir).sort()).toEqual(["kb-answer-engine", "kb-article-writer", "kb-provider"]);
+    for (const name of readdirSync(skillsDir)) {
+      const text = readFileSync(join(skillsDir, name, "SKILL.md"), "utf8");
+      const fm = Bun.YAML.parse(text.slice(4, text.indexOf("\n---", 4))) as Record<string, any>;
+      expect(fm.name).toBe(name);
+      expect(fm.description).toContain("Team Ä & Co. Knowledge Base");
+    }
+    const market = JSON.parse(readFileSync(join(out, ".claude-plugin", "marketplace.json"), "utf8"));
+    expect(market.name).toBe("tka-agent-skills");
+    expect(market.plugins[0].source).toBe("./plugins/tka-workflow");
+    const plugin = JSON.parse(readFileSync(join(out, "plugins", "tka-workflow", ".claude-plugin", "plugin.json"), "utf8"));
+    expect(plugin).toMatchObject({ name: "tka-workflow", version: "1.0.0" });
+    expect(readFileSync(join(out, "README.md"), "utf8")).toContain("/plugin marketplace add acme/tka-agent-skills");
+    for (const f of files(out)) {
+      const text = readFileSync(f, "utf8");
+      expect({ f: relative(out, f), leftover: /\{\{|\buep\b|clickup/i.test(text) }).toEqual({ f: relative(out, f), leftover: false });
+    }
+  });
+
+  test("refuses a non-empty output folder", () => {
+    const out = join(tmp, "skills");
+    renderSkills(opts(), out);
+    expect(() => renderSkills(opts(), out)).toThrow(/not empty/);
+  });
+});
+
 describe("CLI", () => {
+  test("renders both trees", () => {
+    const r = spawnSync(process.execPath, [SCRIPT, "--kb", "tka", "--team", "Team Alpha", "--owner", "acme", "--decider", "Jane Doe", "--sections", "process,pdr", "--kb-out", join(tmp, "a"), "--skills-out", join(tmp, "b")], { encoding: "utf8" });
+    expect(r.stderr).toBe("");
+    expect(r.status).toBe(0);
+    expect(existsSync(join(tmp, "a", "pdr", "about.md"))).toBe(true);
+    expect(existsSync(join(tmp, "b", "plugins", "tka-workflow", "skills", "kb-provider", "SKILL.md"))).toBe(true);
+  });
+
   test("exits 2 with one stderr line per error", () => {
     const r = spawnSync(process.execPath, [SCRIPT, "--kb", "TKA", "--team", "T", "--owner", "acme", "--decider", "D", "--sections", "", "--kb-out", join(tmp, "a"), "--skills-out", join(tmp, "b")], { encoding: "utf8" });
     expect(r.status).toBe(2);

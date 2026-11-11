@@ -1,0 +1,8 @@
+{
+  "name": "{{kb}}-workflow",
+  "description": "{{team}} project-workflow agent skills — the {{team}} Knowledge Base's team read, write and answer routes over the knowledge-base plugin",
+  "version": "1.0.0",
+  "author": {
+    "name": "{{team}}"
+  }
+}
