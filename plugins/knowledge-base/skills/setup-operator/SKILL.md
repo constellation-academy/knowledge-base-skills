@@ -264,10 +264,10 @@ A new or recreated container only. A reused container (step 3a.5) skips to step 
 2. It does not exist, in `<project>`:
 
    ```
-   claude mcp add -s local kb-<kb> -- docker run -i --rm --network kb-<kb> -e NEO4J_URI=bolt://neo4j-<kb>:7687 -e NEO4J_USERNAME -e NEO4J_PASSWORD -e NEO4J_DATABASE <mcp image> mcp-neo4j-cypher --read-only
+   claude mcp add -s local kb-<kb> -- docker run -i --rm --network kb-<kb> -e NEO4J_URI=bolt://neo4j-<kb>:7687 -e NEO4J_USERNAME -e NEO4J_PASSWORD -e NEO4J_DATABASE <mcp image> mcp-neo4j-cypher --read-only --schema-sample-size 1000
    ```
 
-   The bare `-e` flags copy the values from the Claude Code session's environment, which the `env` of `<settings>` supplies; the password never appears in the registration. `--read-only` removes the write tool, so the server offers `mcp__kb-<kb>__get_neo4j_schema` and `mcp__kb-<kb>__read_neo4j_cypher`.
+   The bare `-e` flags copy the values from the Claude Code session's environment, which the `env` of `<settings>` supplies; the password never appears in the registration. `--read-only` removes the write tool, so the server offers `mcp__kb-<kb>__get_neo4j_schema` and `mcp__kb-<kb>__read_neo4j_cypher`. `--schema-sample-size 1000` is required: without it, `get_neo4j_schema` called without a sample size sends `{sample: None}` to Neo4j and fails.
 
 ## 7. Build and check the index
 

@@ -38,7 +38,7 @@ Install it next to your team's plugin. Then run `knowledge-base:setup-operator` 
 
 - a read-only clone at `~/.kb/<kb id>/repo`, with the Neo4j data and import folders next to it;
 - the Docker network `kb-<kb id>`, created with `--internal` (no route outside Docker), and the container `neo4j-<kb id>` (`neo4j:2026.06.0` with APOC limited to the procedures the plugin uses, file loads confined to the import folder, no published host ports, `--restart unless-stopped`); `cypher-shell` reaches it through `docker exec`;
-- the MCP server `kb-<kb id>` in the project's local scope: `mcp/neo4j-cypher@sha256:b252997d16d37633a5a1b30e21ac0bf368b1c64e5895e4005313c84d77a05310` with `--read-only`, on the network `kb-<kb id>`;
+- the MCP server `kb-<kb id>` in the project's local scope: `mcp/neo4j-cypher@sha256:b252997d16d37633a5a1b30e21ac0bf368b1c64e5895e4005313c84d77a05310` with `--read-only` and `--schema-sample-size 1000`, on the network `kb-<kb id>`;
 - the project's `.claude/settings.local.json`: the env keys of the contract, a generated Neo4j password, a deny rule on that file, which stops the Read tool and plain `cat` but not every shell form (a compound command can still get past it), and allow rules for the commands the skills run to read, query and index the KB. The setup never reads the file itself: a script in a throwaway container merges its changes and prints no secret.
 
 It ends by loading the index in a fresh session and checking it: the index holds the clone's commit with at least one document, the full-text index `kb_fulltext` is online, and an explore through the MCP server returns hits. The report says `index: ready`, or `not ready` with the check that failed and what to do; running the setup again repeats only what is missing and the checks.
