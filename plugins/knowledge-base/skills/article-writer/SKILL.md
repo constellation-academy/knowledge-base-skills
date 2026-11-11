@@ -24,7 +24,7 @@ The contract's section "Routes" lists the same inputs for team writers.
   - `frontmatter`: an object holding the document's complete frontmatter, composed by the caller. It is written as given, keys in the given order; it must hold every key of `required_frontmatter`.
   - `number`: `create` only, the `{number}` value, digits only; absent means derived per the contract.
   - `slug`: `create` only, the `{slug}` value, matching `^[a-z0-9]+(-[a-z0-9]+)*$`; absent means derived from `title` per the contract.
-  - `folder`: `create` only, a folder relative to the KB root, ending in `/`, that replaces the type's `folder` for this document, for a KB that keeps one article type in several folders. Absent means the type's `folder`.
+  - `folder`: `create` only, a folder relative to the KB root that replaces the type's `folder` for this document, for a KB that keeps one article type in several folders. Absent means the type's `folder`. Normalize it before any check or use: strip a leading `./`, then append `/` when it does not end in one, so `adr`, `./adr` and `adr/` name the same folder and every later path joins as `<folder><file name>`.
   - `companion_changes`: a list of `{path, content}`: further files written in the same worktree and committed with the document, such as an index entry. `path` is relative to the KB root and `content` is the file's complete new text.
   - `commit_body`: one to three lines, appended to the commit message after a blank line.
   - `pr_body`: the complete pull request description; it replaces the template and the default description.
