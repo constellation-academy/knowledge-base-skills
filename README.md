@@ -16,6 +16,7 @@ Claude Code marketplace with one plugin, `knowledge-base`: agent skills that rea
 | `answer-engine` | answer: answers a question from the KB with document paths as sources |
 | `update-operator` | internal: fast-forwards the read-only clone and reloads the index before a read or write |
 | `setup-operator` | one-time setup per project: read-only clone, Neo4j and MCP server in Docker, project settings |
+| `init-writer` | guided start of a new team KB: fills two empty private GitHub repositories (KB and team skills) with a skeleton |
 
 Without Docker or Neo4j, reads work from the read-only clone; exploring and answering need the KB index.
 
@@ -31,6 +32,15 @@ In Claude Code:
 ```
 
 Install it next to your team's plugin. Then run `knowledge-base:setup-operator` once in the project that uses the KB.
+
+## New knowledge base
+
+`knowledge-base:init-writer` guides a team, developers or not, through starting its own KB. Before it runs, a person with repository-create access in the GitHub organisation creates two empty **private** repositories, `<kb id>-knowledge-base` and `<kb id>-agent-skills`, where the KB id is exactly 3 lower-case letters. The skill checks that both are private, empty and writable, asks for the team name, the person who accepts decisions and the starting sections, fills both repositories with a skeleton and pushes one initial commit to `main` of each.
+
+- KB repository: README with the frontmatter contract, glossary, ADR folder (PDR, process, reference and primer folders on request), templates, the team's own export, index generator and lint scripts, `kb-manifest.json`, and the `Lint KB` GitHub workflow.
+- Team-skills repository: a private marketplace with the plugin `<kb id>-workflow` and its `kb-provider`, `kb-article-writer` and `kb-answer-engine`, which the manifest routes to.
+
+The skeletons live in `plugins/knowledge-base/skeleton/`; `bun plugins/knowledge-base/scripts/kb-init.ts` renders them. Afterwards, install the team plugin and run `knowledge-base:setup-operator`.
 
 ## Setup
 

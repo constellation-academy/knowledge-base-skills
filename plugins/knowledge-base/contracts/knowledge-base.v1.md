@@ -251,6 +251,7 @@ docs: <docs, or "-" when the index is unavailable>
   - An input that breaks one of these rules stops the write before anything is written, with `invalid <input>: <reason>`.
 - `article-writer` writes every frontmatter it writes or rewrites deterministically, since team lint checks compare raw text: plain inline YAML between `---` lines, one `key: value` line per key in the given order; scalars unquoted unless YAML requires quotes; lists inline as `[a, b]`; objects inline as `{ k: v }`; never block lists or block objects.
 - `knowledge-base:update-operator` (fetch and index) is called by the plugin's skills and by a machine reader (section "Freshness"). `knowledge-base:setup-operator` sets up a KB once per project.
+- `knowledge-base:init-writer` creates the content of a new KB and its team-skills repository; it is a direct entry outside these routes, since a new KB has no `KB_PATH` yet.
 - A request for a KB other than the project's is refused.
 
 ## Without an index
