@@ -59,3 +59,35 @@ describe("contract", () => {
     expect(contract).not.toContain("(fetch and index) is internal");
   });
 });
+
+describe("update-operator publish step", () => {
+  const setup = readFileSync(join(PLUGIN, "skills/setup-operator/SKILL.md"), "utf8");
+  const start = updater.indexOf("\n3. Only after the export exited 0");
+  const step = updater.slice(start, updater.indexOf("\n4. Run the query `load`", start));
+  const commands = [...step.matchAll(/```\n([\s\S]*?)```/g)].flatMap((m) => m[1].trim().split(/;\s*/));
+
+  test("makes the export readable for the container's neo4j user before moving it into place", () => {
+    expect(commands).toEqual([
+      'chmod 644 "<import>/kb-export.json.tmp"',
+      'rm "<import>/kb-export.json"',
+      'mv "<import>/kb-export.json.tmp" "<import>/kb-export.json"',
+    ]);
+  });
+
+  test("a denied or failed chmod is not fatal: an install upgraded without re-running setup keeps the 1.1.5 path", () => {
+    const after = step.slice(step.indexOf('chmod 644 "<import>/kb-export.json.tmp"'));
+    const outcome = after.slice(0, after.indexOf("rm \"<import>/kb-export.json\""));
+    expect(outcome).toMatch(/denies it or it fails: continue with the move/i);
+    expect(outcome).not.toMatch(/It fails: `index: unavailable/);
+  });
+
+  test("a load that cannot open the export after a skipped chmod names the cause and the one-time setup migration", () => {
+    const load = updater.slice(updater.indexOf("\n4. Run the query `load`"), updater.indexOf("\n5. The row's `sha`"));
+    expect(load).toContain("Cannot open file");
+    expect(load).toContain("run knowledge-base:setup-operator once");
+  });
+
+  test("setup-operator pre-allows every publish command, so a headless session is not stopped", () => {
+    for (const c of commands) expect(setup).toContain(`Bash(${c})`);
+  });
+});
