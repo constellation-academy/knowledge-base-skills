@@ -7,7 +7,7 @@ description: Use when a developer wants the project's knowledge base (KB) set up
 
 Sets up one KB for the current project, once per project and machine: the read-only clone, the KB's Neo4j in Docker, the read-only Neo4j MCP server, and the project's local settings. Then fresh sessions load the index and check that it holds the clone's commit and answers a search through the MCP server; the setup is done only when those checks pass.
 
-The layout, the env keys and the isolation rules are in the contract, `contracts/knowledge-base.v1.md` at the plugin root (two folders above this skill's directory), sections "Local layout", "Project configuration" and "Isolation". The shell rules in `../update-operator/runtime.md` (section "Shell rules") apply to every command here, with two exceptions: the few lines in "Commands per OS" below, and the text inside single quotes that the host shell does not run: Docker `--format` and `--filter` literals (`{{…}}`, `^…$`) and the script passed to `bash -c` inside a container. When a command is denied or fails where this skill names no outcome, follow "Denied or failed commands" there: stop and report the command and the reason.
+The layout, the env keys and the isolation rules are in the contract, `contracts/knowledge-base.v1.md` at the plugin root (two folders above this skill's directory), sections "Local layout", "Project configuration" and "Isolation". The shell rules in `../update-operator/runtime.md` (section "Shell rules") apply to every command here, with two exceptions: the few lines in "Commands per OS" below, and the text inside single quotes that the host shell does not run: Docker `--format` and `--filter` literals (`{{…}}`, `^…$`) and the script passed to `bash -c` inside a container. When a command is denied or fails where this skill names no outcome, follow "Denied or failed commands" there: stop and report the command and the reason. The setup needs manual permission mode: auto mode denies the settings merge, which writes permission rules into this session's own project settings.
 
 ## Rules
 
@@ -51,6 +51,7 @@ docker run --rm --network none -v "<scripts>:/s:ro" -v "<home>/.kb:/f" -v "<proj
 - A missing `<settings>` is created with mode 600 and the owner of `<project>/.claude`. An existing one keeps its owner and other keys and gets mode 600.
 - A missing key or entry is added (`added …`); one with the same value stays (`kept …`). A key with another value is never changed: `conflict env <key>`, with the current and wanted value for `KB_PATH`, `NEO4J_SHELL`, `NEO4J_USERNAME` and `NEO4J_DATABASE` only. Every conflict goes into the report.
 - `error: … nothing changed` (`<settings>` is not valid JSON, or its `env`, `permissions` or a permission list has the wrong type): the script wrote and deleted nothing; reply that line and stop.
+- The command is denied by auto mode: reply `auto mode blocks the settings merge; switch this session to manual mode (shift+tab), then run setup-operator again` and stop.
 
 ## Commands per OS
 
@@ -332,6 +333,7 @@ On Windows add: `permissions: not enforced on Windows (no chmod); <settings> is 
 | Reading `<settings>` with the file tools, `cat` or Grep, or printing `docker inspect` `.Config.Env` | Change it only through the merge script; inspect only the fields of step 3a.1 |
 | Putting the password or `NEO4J_AUTH=…` on a command line, or asking for a password during the run | The scripts of step 5.1 generate it in place; a password the developer adds goes under "to add by hand" |
 | Recreating a container, or replacing a `KB_PATH`, `env` value or MCP registration, because it differs | Name the difference; recreate a container only on the explicit yes of step 3a.7, replace an MCP registration only on the explicit yes of step 6.1 |
+| Retrying a settings merge that auto mode denied, in another form or without the merge | Stop with the auto-mode reply of "Merge into the settings" |
 | Starting a new container on a data folder that already holds data | Stop and ask (step 3b.1) |
 | Running the export or the load yourself | The load check of step 7 runs them in a fresh session |
 | Reporting the setup as done while the index is empty, behind the clone or not searchable | `index: ready` only when all checks of step 7 pass; otherwise `not ready` with the failed check and its action |
