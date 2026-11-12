@@ -74,6 +74,19 @@ describe("update-operator publish step", () => {
     ]);
   });
 
+  test("a denied or failed chmod is not fatal: an install upgraded without re-running setup keeps the 1.1.5 path", () => {
+    const after = step.slice(step.indexOf('chmod 644 "<import>/kb-export.json.tmp"'));
+    const outcome = after.slice(0, after.indexOf("rm \"<import>/kb-export.json\""));
+    expect(outcome).toMatch(/denies it or it fails: continue with the move/i);
+    expect(outcome).not.toMatch(/It fails: `index: unavailable/);
+  });
+
+  test("a load that cannot open the export after a skipped chmod names the cause and the one-time setup migration", () => {
+    const load = updater.slice(updater.indexOf("\n4. Run the query `load`"), updater.indexOf("\n5. The row's `sha`"));
+    expect(load).toContain("Cannot open file");
+    expect(load).toContain("run knowledge-base:setup-operator once");
+  });
+
   test("setup-operator pre-allows every publish command, so a headless session is not stopped", () => {
     for (const c of commands) expect(setup).toContain(`Bash(${c})`);
   });

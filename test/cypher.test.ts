@@ -225,6 +225,27 @@ describe("publish step of update-operator", () => {
   });
 });
 
+describe("publish step with chmod denied (install upgraded from 1.1.5 without re-running setup)", () => {
+  const publishWithoutChmod = async (umask: string) => {
+    const tmp = join(IMPORT, "kb-export.json.tmp");
+    Bun.spawnSync(["bash", "-c", `umask ${umask}; cat > "${tmp}"`], { stdin: new TextEncoder().encode(JSON.stringify(sample())) });
+    for (const cmd of publishCommands().filter((c) => !c.startsWith("chmod "))) {
+      expect(Bun.spawnSync(["bash", "-c", `umask ${umask}; ${cmd}`]).exitCode).toBe(0);
+    }
+    return query("load", { kb: "t" });
+  };
+
+  test("umask 022: the export is readable without chmod and loads, as in 1.1.5", async () => {
+    expect(rows(await publishWithoutChmod("022"))).toEqual([{ kb: "t", sha: "abc123", docs: 5 }]);
+  });
+
+  test("umask 077: the load fails with the error step 6.4 maps to the setup migration", async () => {
+    const r = await publishWithoutChmod("077");
+    expect(r.code).not.toBe(0);
+    expect(r.stderr).toContain("Cannot open file /import/kb-export.json for reading");
+  });
+});
+
 describe("load and status", () => {
   test("load then status returns kb, sha and doc count", async () => {
     const r = await load(sample());
