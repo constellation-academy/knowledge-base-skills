@@ -59,3 +59,22 @@ describe("contract", () => {
     expect(contract).not.toContain("(fetch and index) is internal");
   });
 });
+
+describe("update-operator publish step", () => {
+  const setup = readFileSync(join(PLUGIN, "skills/setup-operator/SKILL.md"), "utf8");
+  const start = updater.indexOf("\n3. Only after the export exited 0");
+  const step = updater.slice(start, updater.indexOf("\n4. Run the query `load`", start));
+  const commands = [...step.matchAll(/```\n([\s\S]*?)```/g)].flatMap((m) => m[1].trim().split(/;\s*/));
+
+  test("makes the export readable for the container's neo4j user before moving it into place", () => {
+    expect(commands).toEqual([
+      'chmod 644 "<import>/kb-export.json.tmp"',
+      'rm "<import>/kb-export.json"',
+      'mv "<import>/kb-export.json.tmp" "<import>/kb-export.json"',
+    ]);
+  });
+
+  test("setup-operator pre-allows every publish command, so a headless session is not stopped", () => {
+    for (const c of commands) expect(setup).toContain(`Bash(${c})`);
+  });
+});

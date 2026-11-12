@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -142,6 +142,7 @@ const plain = (r: Run): string[][] => {
 const writeExport = (e: unknown) => {
   const tmp = join(IMPORT, "kb-export.json.tmp");
   writeFileSync(tmp, typeof e === "string" ? e : JSON.stringify(e));
+  chmodSync(tmp, 0o644); // update-operator step 6.3: readable for the container's neo4j user whatever the umask
   renameSync(tmp, join(IMPORT, "kb-export.json"));
 };
 
@@ -198,6 +199,30 @@ afterAll(() => {
 
 beforeEach(async () => {
   await cypher("MATCH (n) DETACH DELETE n;");
+});
+
+// update-operator step 6.3, as its SKILL.md writes it: the bash/zsh commands that publish a finished export.
+const publishCommands = (): string[] => {
+  const skill = readFileSync(join(import.meta.dir, "../plugins/knowledge-base/skills/update-operator/SKILL.md"), "utf8");
+  const start = skill.indexOf("\n3. Only after the export exited 0");
+  const step = skill.slice(start, skill.indexOf("\n4. Run the query `load`", start));
+  return [...step.matchAll(/```\n([\s\S]*?)```/g)].map((m) => m[1].trim().replaceAll("<import>", IMPORT));
+};
+
+describe("publish step of update-operator", () => {
+  test("an export written under umask 077 is readable by the container's neo4j user after step 6.3", async () => {
+    const tmp = join(IMPORT, "kb-export.json.tmp");
+    // The exporter's writeFileSync honours the session umask; under 077 it leaves 0600.
+    writeFileSync(tmp, JSON.stringify(sample()), { mode: 0o600 });
+    chmodSync(tmp, 0o600);
+    for (const cmd of publishCommands()) {
+      const r = Bun.spawnSync(["bash", "-c", `umask 077; ${cmd}`]);
+      expect(r.exitCode, `${cmd}: ${r.stderr}`).toBe(0);
+    }
+    expect(existsSync(tmp)).toBe(false);
+    expect(statSync(join(IMPORT, "kb-export.json")).mode & 0o004).toBe(0o004);
+    expect(rows(await query("load", { kb: "t" }))).toEqual([{ kb: "t", sha: "abc123", docs: 5 }]);
+  });
 });
 
 describe("load and status", () => {

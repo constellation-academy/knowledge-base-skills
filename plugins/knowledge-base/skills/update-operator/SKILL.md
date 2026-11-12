@@ -47,7 +47,13 @@ Compare with the file tools only; no shell command reads or compares these files
 
 1. Run the query `fulltext` with `analyzer` = the manifest's `fulltext_analyzer`, or `standard-no-stop-words` when the manifest has none. It fails: `index: unavailable — <reason>`, go to step 7.
 2. Build the export command from the manifest's `export.cmd`: replace `{ref}` with `"<commit>"` and `{out}` with `"<import>/kb-export.json.tmp"`, each in double quotes. Run it in the clone root as `cd "<clone>"; <export command>`, allowing up to 10 minutes. It exits non-zero: `index: unavailable — the export failed: <first error line>; the previous index is kept`, go to step 7. The load never reads a file the export is still writing: only a finished export becomes `kb-export.json`.
-3. Only after the export exited 0, check with the file tools that `<import>/kb-export.json.tmp` exists. It does not: `index: unavailable — the export wrote no file; the previous index is kept`, go to step 7. Otherwise replace the export file with it, in one line that runs unchanged in bash, zsh and PowerShell:
+3. Only after the export exited 0, check with the file tools that `<import>/kb-export.json.tmp` exists. It does not: `index: unavailable — the export wrote no file; the previous index is kept`, go to step 7. Otherwise, on macOS and Linux, first make it readable for Neo4j: the export honours the session's umask and may have written it for its owner only, and the container's `neo4j` user is neither the file's owner nor in its group:
+
+   ```
+   chmod 644 "<import>/kb-export.json.tmp"
+   ```
+
+   It fails: `index: unavailable — the export could not be made readable for Neo4j: <first error line>; the previous index is kept`, go to step 7. On Windows skip it: Windows has no mode bits, and Docker Desktop shares the folder with the container user. Then replace the export file with it, in one line that runs unchanged in bash, zsh and PowerShell:
 
    ```
    rm "<import>/kb-export.json"; mv "<import>/kb-export.json.tmp" "<import>/kb-export.json"
@@ -78,5 +84,6 @@ docs: <docs, or "-" when the index is unavailable>
 | Writing a parameter as `-P 'kb => "<kb>"'` | `-P "kb => '<kb>'"` with the escapes of `runtime.md`; Windows PowerShell 5.1 drops a `"` inside an argument, and the query then fails |
 | Loading when `status` already reports `<commit>` | Load only on a different `sha` or an empty store |
 | Running the export against the working tree or a branch name | `{ref}` is the full commit SHA `<commit>` |
+| Loading an export the session's umask left unreadable to others (`Cannot open file /import/kb-export.json for reading`) | On macOS and Linux, `chmod 644` the finished export before moving it into place (step 6.3); never change the session's umask |
 | Stopping the caller because Neo4j is down | Report `index: unavailable` with the reason; the caller reads the files |
 | Retrying a refused load or clearing the store to make it pass | Report the refusal; the store and the previous index stay as they are |
