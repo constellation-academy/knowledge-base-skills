@@ -1,6 +1,6 @@
 ---
 name: start-operator
-description: Use when the project's knowledge base (KB) index stopped answering on a machine where knowledge-base:setup-operator already ran, typically after a reboot — "KB index unavailable", "Neo4j is not reachable", "start the KB", "start Neo4j", "the KB index is down", "the kb MCP server failed", "run start-operator" — or when a knowledge-base skill reported that knowledge-base:start-operator is needed. Operator: starts Docker and the KB's existing Neo4j container, waits until it answers, and tells the developer how to reconnect the KB's MCP server; never creates, recreates or reconfigures a container, network, MCP registration or setting.
+description: Use when the project's knowledge base (KB) index stopped answering on a machine where knowledge-base:setup-operator already ran, typically after a reboot — "KB index unavailable", "Neo4j is not reachable", "start the KB", "start Neo4j", "the KB index is down", "the kb MCP server failed", "run start-operator" — or when a knowledge-base skill reported that knowledge-base:start-operator is needed. Operator: starts Docker and the KB's existing Neo4j container, waits until it answers, and reports whether this session's KB MCP server is usable or needs a reconnect; never creates, recreates or reconfigures a container, network, MCP registration or setting.
 ---
 
 # Start the KB stack
@@ -31,11 +31,13 @@ Follow "Start Docker" in `start.md`. Outcome `docker: running` or `docker: start
 
 ## 4. The MCP server
 
-`claude mcp get kb-<kb>` in the session's working directory, the project root, only checks that the server is registered: its `Status:` comes from a fresh probe, not from this session's server. Whether this session can use the server shows in its own tool list. The `mcp:` line:
+The `mcp:` line, in this order:
 
-- `claude mcp get` fails: `kb-<kb> is not registered; run knowledge-base:setup-operator`.
-- This session's tools, deferred tools included, contain `mcp__kb-<kb>__read_neo4j_cypher`: `kb-<kb> connected`. The server reaches Neo4j only per query, so a Neo4j restart needs no reconnect.
-- They do not: `in /mcp, reconnect kb-<kb>, or start a new session`. The server starts with the session and runs in Docker, so a session that began while Docker was down holds a failed `kb-<kb>`, also when Docker came up later by itself; the session cannot run `/mcp` itself.
+1. Docker was `started` in step 2: `in /mcp, reconnect kb-<kb>, or start a new session`. The server starts with the session and runs in Docker (`docker run -i --rm`), so it failed if the session began while Docker was down, or died when Docker stopped during the session; whether the session then still lists its tools is not known.
+2. This session's tools, deferred tools included, contain `mcp__kb-<kb>__read_neo4j_cypher`: `kb-<kb> connected`. The server reaches Neo4j only per query, so a Neo4j restart needs no reconnect.
+3. Otherwise run `claude mcp get kb-<kb>` in the session's working directory, the project root. It fails: `kb-<kb> is not registered; run knowledge-base:setup-operator`. It succeeds: `in /mcp, reconnect kb-<kb>, or start a new session`. Its `Status:` comes from a fresh probe of its own, not from this session's server, so it never decides the line.
+
+A session that runs this skill in a subagent with a restricted tool set lacks the tool and gets the reconnect line; the developer then checks `/mcp`.
 
 ## 5. Report
 
