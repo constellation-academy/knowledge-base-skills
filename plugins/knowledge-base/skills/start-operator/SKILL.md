@@ -31,12 +31,11 @@ Follow "Start Docker" in `start.md`. Outcome `docker: running` or `docker: start
 
 ## 4. The MCP server
 
-`claude mcp get kb-<kb>` in the session's working directory, the project root. The `mcp:` line:
+`claude mcp get kb-<kb>` in the session's working directory, the project root, only checks that the server is registered: its `Status:` comes from a fresh probe, not from this session's server. Whether this session can use the server shows in its own tool list. The `mcp:` line:
 
-- It fails: `kb-<kb> is not registered; run knowledge-base:setup-operator`.
-- Docker was `started` in step 2: `in /mcp, reconnect kb-<kb>, or start a new session`. The server starts with the session and runs in Docker, so a session that began while Docker was down holds a failed `kb-<kb>`; the session cannot run `/mcp` itself.
-- Otherwise its `Status:` line reads `✔ Connected`: `kb-<kb> connected`. The server reaches Neo4j only per query, so a Neo4j restart needs no reconnect.
-- Any other status: `kb-<kb> <status>; run knowledge-base:setup-operator`.
+- `claude mcp get` fails: `kb-<kb> is not registered; run knowledge-base:setup-operator`.
+- This session's tools, deferred tools included, contain `mcp__kb-<kb>__read_neo4j_cypher`: `kb-<kb> connected`. The server reaches Neo4j only per query, so a Neo4j restart needs no reconnect.
+- They do not: `in /mcp, reconnect kb-<kb>, or start a new session`. The server starts with the session and runs in Docker, so a session that began while Docker was down holds a failed `kb-<kb>`, also when Docker came up later by itself; the session cannot run `/mcp` itself.
 
 ## 5. Report
 
