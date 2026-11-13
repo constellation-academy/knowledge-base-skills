@@ -1,7 +1,7 @@
 {
   "name": "knowledge-base",
   "description": "Knowledge-base agent skills — one entry point that reads, writes and answers from a git-backed team KB, a per-KB local Neo4j index loaded through APOC, and the versioned KB contract with its manifest schema",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "author": {
     "name": "Constellation Academy"
   }
