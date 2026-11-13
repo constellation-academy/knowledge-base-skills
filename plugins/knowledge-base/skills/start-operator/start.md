@@ -6,13 +6,14 @@ The shell rules in `../update-operator/runtime.md` (section "Shell rules") apply
 
 ## Commands per OS
 
-The session's OS picks the column. Claude Code running inside WSL is Linux.
+The session's OS picks the column; Linux uses only the two wait rows. Claude Code running inside WSL is Linux.
 
-| Step | macOS | Windows (PowerShell) |
+| Step | macOS, Linux | Windows (PowerShell) |
 |---|---|---|
 | Docker Desktop is installed | `test -d "/Applications/Docker.app"` | `Test-Path "C:\Program Files\Docker\Docker\Docker Desktop.exe"` |
 | start Docker Desktop | `open -a Docker` | `Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"` |
 | wait for Docker, up to 2 minutes | `bash -c 'for i in $(seq 60); do docker version --format "{{.Server.Version}}" && exit 0; sleep 2; done; exit 1'` | `for ($i = 0; $i -lt 60; $i++) { docker version --format '{{.Server.Version}}'; if ($LASTEXITCODE -eq 0) { break }; Start-Sleep 2 }; docker version --format '{{.Server.Version}}'` |
+| wait for Bolt, up to 3 minutes | `bash -c 'for i in $(seq 90); do docker exec neo4j-<kb> bash -c "(echo > /dev/tcp/127.0.0.1/7687) 2>/dev/null" && exit 0; sleep 2; done; exit 1'` | `for ($i = 0; $i -lt 90; $i++) { docker exec neo4j-<kb> bash -c '(echo > /dev/tcp/127.0.0.1/7687) 2>/dev/null'; if ($LASTEXITCODE -eq 0) { break }; Start-Sleep 2 }; docker exec neo4j-<kb> bash -c '(echo > /dev/tcp/127.0.0.1/7687) 2>/dev/null && echo bolt-ok'` |
 
 On Linux, and on Windows without Docker Desktop (Docker Engine inside a WSL distro), starting the Docker daemon needs root, so the developer starts it.
 
@@ -38,10 +39,6 @@ The caller has made sure that `neo4j-<kb>` exists.
 
 ## Wait for Bolt
 
-Up to three minutes; a first start installs APOC:
+Run "wait for Bolt" (Commands per OS); a first start installs APOC, so it waits up to three minutes. The loop runs on the host and repeats `docker exec` each time, because Docker refuses `docker exec` while a container is `restarting`.
 
-```
-docker exec neo4j-<kb> bash -c 'for i in $(seq 90); do (echo > /dev/tcp/127.0.0.1/7687) 2>/dev/null && exit 0; sleep 2; done; exit 1'
-```
-
-Exit 0: outcome `neo4j: <running | started>, Bolt answers`. Otherwise: outcome `neo4j: Bolt does not answer`, with the output of `docker logs --tail 20 neo4j-<kb>`.
+The bash command exits 0, or the PowerShell command's last line is `bolt-ok`: outcome `neo4j: <running | started>, Bolt answers`. Otherwise run `docker inspect --format '{{.State.Status}}' neo4j-<kb>`; outcome `neo4j: Bolt does not answer` (`neo4j: Bolt does not answer — neo4j-<kb> keeps restarting` when it prints `restarting`), with the output of `docker logs --tail 20 neo4j-<kb>`.
