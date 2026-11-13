@@ -251,7 +251,7 @@ docs: <docs, or "-" when the index is unavailable>
   - `pr_body`: the complete pull request description, replacing `pr.template` and the default.
   - An input that breaks one of these rules stops the write before anything is written, with `invalid <input>: <reason>`.
 - `article-writer` writes every frontmatter it writes or rewrites deterministically, since team lint checks compare raw text: plain inline YAML between `---` lines, one `key: value` line per key in the given order; scalars unquoted unless YAML requires quotes; lists inline as `[a, b]`; objects inline as `{ k: v }`; never block lists or block objects.
-- `knowledge-base:update-operator` (fetch and index) is called by the plugin's skills and by a machine reader (section "Freshness"). `knowledge-base:setup-operator` sets up a KB once per project.
+- `knowledge-base:update-operator` (fetch and index) is called by the plugin's skills and by a machine reader (section "Freshness"). `knowledge-base:setup-operator` sets up a KB once per project. `knowledge-base:start-operator` starts Docker and the KB's existing Neo4j container again, after a reboot.
 - A request for a KB other than the project's is refused.
 
 ## Without an index
@@ -261,7 +261,7 @@ Reads work from the read-only clone and the manifest alone when Docker, Neo4j or
 - Items resolve as in the "Index unavailable" column of section "Resolution".
 - Relationship queries (`related`, `supersede-chain`) and exploration are unavailable.
 - The reader says once that the index is missing; it never fails its caller for that reason.
-- `answer-engine` reports that it needs the KB index and names `knowledge-base:setup-operator`.
+- `answer-engine` reports that it needs the KB index, with update-operator's reason, which names `knowledge-base:start-operator` when Neo4j is not reachable and `knowledge-base:setup-operator` when the index is not set up.
 
 ## Isolation
 

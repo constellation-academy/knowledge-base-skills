@@ -39,7 +39,7 @@ Compare with the file tools only; no shell command reads or compares these files
 
 ### 5. Compare the index
 
-1. Run the query `status` with `kb`. It fails: `index: unavailable — <reason>` (for a connection error add "Neo4j is not reachable; run knowledge-base:start-operator"), and go to step 7.
+1. Run the query `status` with `kb`. It fails: `index: unavailable — <reason>` (when the error says the container is not running, the Docker daemon cannot be reached, or the connection is refused, add "Neo4j is not reachable; run knowledge-base:start-operator"; for `No such container` add "run knowledge-base:setup-operator"), and go to step 7.
 2. Exactly one row, and its `sha` equals `<commit>`: `index: current`, `docs` from the row; go to step 7.
 3. More than one row, a row with `empty: true`, or another `sha`: go to step 6.
 

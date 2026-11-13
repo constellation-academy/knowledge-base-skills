@@ -46,7 +46,7 @@ KB <kb> at <first 7 characters of commit>
 
 ## 3. explore
 
-Index unavailable: return `explore: <question>` and the line `needs the KB index: run knowledge-base:setup-operator`, and stop. Exploration has no file fallback.
+Index unavailable: return `explore: <question>` and the line `needs the KB index (<reason>)`, with update-operator's reason, and stop. Exploration has no file fallback.
 
 Index available:
 

@@ -26,14 +26,14 @@ Follow "Start Docker" in `start.md`. Outcome `docker: running` or `docker: start
 ## 3. The Neo4j container
 
 1. `docker ps -a --filter 'name=^neo4j-<kb>' --format '{{.Names}}'`. Only the exact names `neo4j-<kb>` and `neo4j-<kb>.previous` count. No `neo4j-<kb>`, or `neo4j-<kb>.previous` exists: reply `neo4j-<kb> <is missing | has a leftover neo4j-<kb>.previous from an earlier recreate>. Run knowledge-base:setup-operator.` and stop.
-2. Follow "Start the container" in `start.md`. Outcome `neo4j: not started` or `neo4j: Bolt does not answer`: reply the outcome with its details plus `Run knowledge-base:setup-operator.` and stop.
-3. `docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' neo4j-<kb>` is not `unless-stopped`: the report's `next:` adds `neo4j-<kb> will not start with Docker after the next reboot; run knowledge-base:setup-operator to fix its restart policy`.
+2. Follow "Start the container" in `start.md`. Any outcome other than `neo4j: <running | started>, Bolt answers`: reply the outcome with its log lines plus `Fix the cause the log shows, then run knowledge-base:start-operator again.` and stop. setup-operator would stop at the same point, since it starts the container the same way.
+3. `docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' neo4j-<kb>` is not `unless-stopped`: the report's `next:` adds `neo4j-<kb> has the restart policy <policy>, not unless-stopped; run knowledge-base:setup-operator to fix it`.
 
 ## 4. The MCP server
 
-`claude mcp get kb-<kb>` in the project root. It fails: the `mcp:` line is `kb-<kb> is not registered; run knowledge-base:setup-operator`. It succeeds: the `mcp:` line is `in this session run /mcp and reconnect kb-<kb>, or start a new session`.
+`claude mcp get kb-<kb>` in the project root. It fails: the `mcp:` line is `kb-<kb> is not registered; run knowledge-base:setup-operator`. It succeeds: the `mcp:` line is `if kb-<kb> shows as failed in /mcp, reconnect it there or start a new session`.
 
-The MCP server starts with the session, so a session that began while Docker or Neo4j was down keeps a failed `kb-<kb>`. The session cannot run `/mcp` itself; the developer reconnects it.
+The MCP server starts with the session, so a session that began while Docker or Neo4j was down may hold a failed `kb-<kb>`. The session cannot run `/mcp` itself; the developer checks and reconnects it.
 
 ## 5. Report
 
@@ -46,7 +46,7 @@ next: <each line below that applies, or "nothing">
 ```
 
 `next:` lines, in this order:
-- Docker was `started`: `turn on "Start Docker Desktop when you sign in" in Docker Desktop's settings so the KB comes back after a reboot`;
+- Docker was `started`: `if "Start Docker Desktop when you sign in" is off in Docker Desktop's settings, turn it on so the KB comes back after a reboot`;
 - the restart-policy line of step 3.3;
 - a request of the developer hit the unavailable index: `after reconnecting, ask again: <that request>`.
 
@@ -59,5 +59,6 @@ The index is not checked here: the next KB read runs `knowledge-base:update-oper
 | `docker run` a new `neo4j-<kb>` because the old one is missing or will not start | Stop and name setup-operator: a new container on the same data needs its checks and the developer's yes |
 | Running setup-operator after a reboot when the container only stopped | This skill: setup-operator needs manual permission mode and runs headless checks |
 | Running `sudo` to start the Docker engine on Linux, or starting another runtime than Docker Desktop | Reply the `docker:` outcome of `start.md`; the developer starts it |
+| Sending a container that will not start to setup-operator | Reply the outcome and its log lines; setup-operator starts it the same way and stops there too |
 | Reading `.claude/settings.local.json` to find the password or `NEO4J_SHELL` | Not needed: starting the container and the Bolt check use no credentials |
 | Reporting the KB as back while the session's `kb-<kb>` tools are still missing | The `mcp:` line tells the developer to reconnect in `/mcp` |
