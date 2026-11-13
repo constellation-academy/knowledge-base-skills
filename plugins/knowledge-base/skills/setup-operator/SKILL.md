@@ -7,7 +7,7 @@ description: Use when a developer wants the project's knowledge base (KB) set up
 
 Sets up one KB for the current project, once per project and machine: the read-only clone, the KB's Neo4j in Docker, the read-only Neo4j MCP server, and the project's local settings. Then fresh sessions load the index and check that it holds the clone's commit and answers a search through the MCP server; the setup is done only when those checks pass.
 
-The layout, the env keys and the isolation rules are in the contract, `contracts/knowledge-base.v1.md` at the plugin root (two folders above this skill's directory), sections "Local layout", "Project configuration" and "Isolation". The shell rules in `../update-operator/runtime.md` (section "Shell rules") apply to every command here, with two exceptions: the few lines in "Commands per OS" below, and the text inside single quotes that the host shell does not run: Docker `--format` and `--filter` literals (`{{…}}`, `^…$`) and the script passed to `bash -c` inside a container. When a command is denied or fails where this skill names no outcome, follow "Denied or failed commands" there: stop and report the command and the reason. The setup needs manual permission mode: auto mode denies the settings merge, which writes permission rules into this session's own project settings.
+The layout, the env keys and the isolation rules are in the contract, `contracts/knowledge-base.v1.md` at the plugin root (two folders above this skill's directory), sections "Local layout", "Project configuration" and "Isolation". The shell rules in `../update-operator/runtime.md` (section "Shell rules") apply to every command here, with two exceptions: the few lines in "Commands per OS" below and in `start.md`, and the text inside single quotes that the host shell does not run: Docker `--format` and `--filter` literals (`{{…}}`, `^…$`) and the script passed to `bash -c` inside a container. Docker and an existing Neo4j container are started, and Bolt is awaited, only through the sections of `../start-operator/start.md`, which this skill follows; it runs no start or wait command of its own. When a command is denied or fails where this skill names no outcome, follow "Denied or failed commands" there: stop and report the command and the reason. The setup needs manual permission mode: auto mode denies the settings merge, which writes permission rules into this session's own project settings.
 
 ## Rules
 
@@ -67,7 +67,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 ## 1. Check the project
 
 1. Get `<home>`. Run `git --version` and `claude --version`; either fails: reply `setup-operator needs git and the claude CLI on PATH.` and stop.
-2. `docker version --format '{{.Server.Version}}'` fails: Docker is missing or not running. This setup then writes nothing to `<settings>` and skips steps 1.4, 1.5, 3, 4.2, 5, 6 and 7. The report says `reads work from the clone; the index needs Docker: start Docker and run setup-operator again`, and lists, under "to add by hand", `KB_PATH` = `<KB_PATH>`, the deny rule `Read(/.claude/settings.local.json)` and the allow rules for the commands that run without Docker (the `printenv`, `git` and `Read` rules of "Allow rules").
+2. Follow "Start Docker" in `../start-operator/start.md`. Outcome `docker: running` or `docker: started`: continue. Any other outcome: Docker is missing or not running. This setup then writes nothing to `<settings>` and skips steps 1.4, 1.5, 3, 4.2, 5, 6 and 7. The report says `reads work from the clone; the index needs Docker: <the outcome after "docker: ">, then run setup-operator again`, and lists, under "to add by hand", `KB_PATH` = `<KB_PATH>`, the deny rule `Read(/.claude/settings.local.json)` and the allow rules for the commands that run without Docker (the `printenv`, `git` and `Read` rules of "Allow rules").
 3. `git -C "<project>" ls-files --error-unmatch ".claude/settings.local.json"` exits 0: the file is tracked, and a password in it would be committed. Reply `<settings> is tracked by git; untrack it (git rm --cached) and add it to .gitignore, then run setup-operator again.` and stop. Any other exit code (untracked, or no git repository): continue. In a git repository, `git -C "<project>" check-ignore -q ".claude/settings.local.json"` exits 1: the file is not ignored and could still be committed; the report says `add .claude/settings.local.json to .gitignore`.
 4. `docker pull <mcp image>`.
 5. Protect the settings: merge (section "Merge into the settings") a fragment with `permissions.deny` = `["Read(/.claude/settings.local.json)"]` and `permissions.allow` = `["Read(//<plugins folder>/**)"]` (see "Allow rules"). Its `<password state>` is the state for the steps below.
@@ -118,7 +118,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
    ```
 
    `<own keys>` are the container's keys that its image does not set.
-2. Not `running`: `docker start neo4j-<kb>`.
+2. Follow "Start the container" in `../start-operator/start.md`. Outcome `neo4j: not started` or `neo4j: Bolt does not answer`: reply it with its details and stop.
 3. `docker exec neo4j-<kb> printenv NEO4J_PLUGINS NEO4J_apoc_import_file_enabled NEO4J_server_directories_import NEO4J_dbms_security_procedures_allowlist`.
 4. Collect what needs a new container: `NEO4J_PLUGINS` without `apoc`; `NEO4J_apoc_import_file_enabled` not `true`; `NEO4J_server_directories_import` not `/import`; `NEO4J_dbms_security_procedures_allowlist` not equal to its line in `<scripts>/neo4j.env`; no mount of `<import>` at `/import`; any published port (`<ports>` not empty); the network `kb-<kb>` not internal (step 3.1 printed `false`); any network other than `kb-<kb>` (`<other networks>` not empty), since each one may route outside.
 5. Nothing collected: fix in place what can be. Restart policy not `unless-stopped`: `docker update --restart unless-stopped neo4j-<kb>`. `docker network inspect --format '{{range .Containers}}{{.Name}} {{end}}' kb-<kb>` lacks `neo4j-<kb>`: `docker network connect kb-<kb> neo4j-<kb>`. Continue at step 3a.8.
@@ -250,13 +250,7 @@ A new or recreated container only. A reused container (step 3a.5) skips to step 
    docker run -d --name neo4j-<kb> --restart unless-stopped --network kb-<kb> -v "<data>:/data" -v "<import>:/import" --env-file "<kb folder>/neo4j.env" <image>
    ```
 
-3. Wait until Bolt answers, up to three minutes (the first start installs APOC):
-
-   ```
-   docker exec neo4j-<kb> bash -c 'for i in $(seq 90); do (echo > /dev/tcp/127.0.0.1/7687) 2>/dev/null && exit 0; sleep 2; done; exit 1'
-   ```
-
-   It exits non-zero: reply the last 20 lines of `docker logs --tail 20 neo4j-<kb>` and stop.
+3. Follow "Wait for Bolt" in `../start-operator/start.md`. Outcome `neo4j: Bolt does not answer`: reply it with its log lines and stop.
 4. The container user can write the data and read the import folder: `docker exec -u neo4j neo4j-<kb> test -w /data/databases` and `docker exec -u neo4j neo4j-<kb> ls /import`. Either fails: reply `the Neo4j container user cannot use <data> or <import>; on Linux make <data> writable and <import> readable for uid 7474 (or run Docker rootless), then run setup-operator again.` and stop.
 5. APOC is installed: `docker exec neo4j-<kb> ls /var/lib/neo4j/plugins` lists a file starting with `apoc`. Otherwise reply the listing and stop.
 

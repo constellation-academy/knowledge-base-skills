@@ -16,6 +16,7 @@ Claude Code marketplace with one plugin, `knowledge-base`: agent skills that rea
 | `answer-engine` | answer: answers a question from the KB with document paths as sources |
 | `update-operator` | internal: fast-forwards the read-only clone and reloads the index before a read or write |
 | `setup-operator` | one-time setup per project: read-only clone, Neo4j and MCP server in Docker, project settings |
+| `start-operator` | after a reboot: starts Docker and the KB's existing Neo4j container, then names the MCP reconnect; setup-operator uses the same start steps |
 
 Without Docker or Neo4j, reads work from the read-only clone; exploring and answering need the KB index.
 
