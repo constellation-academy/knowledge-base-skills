@@ -51,7 +51,7 @@ docker run --rm --network none -v "<scripts>:/s:ro" -v "<home>/.kb:/f" -v "<proj
 - A missing `<settings>` is created with mode 600 and the owner of `<project>/.claude`. An existing one keeps its owner and other keys and gets mode 600.
 - A missing key or entry is added (`added …`); one with the same value stays (`kept …`). A key with another value is never changed: `conflict env <key>`, with the current and wanted value for `KB_PATH`, `NEO4J_SHELL`, `NEO4J_USERNAME` and `NEO4J_DATABASE` only. Every conflict goes into the report.
 - `error: … nothing changed` (`<settings>` is not valid JSON, or its `env`, `permissions` or a permission list has the wrong type): the script wrote and deleted nothing; reply that line and stop.
-- The command is denied by auto mode: reply `auto mode blocks the settings merge; switch this session to manual mode (shift+tab), or allow docker commands with Bash(docker *), on Windows also PowerShell(docker *), then run setup-operator again` and stop.
+- The command is denied by auto mode: reply `auto mode blocks the settings merge; switch this session to manual mode (shift+tab), or allow docker commands with Bash(docker *) in your user settings, on Windows also PowerShell(docker *), then run setup-operator again` and stop.
 
 ## Commands per OS
 
@@ -68,7 +68,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 
 1. Get `<home>`. Run `git --version` and `claude --version`; either fails: reply `setup-operator needs git and the claude CLI on PATH.` and stop.
 2. Follow "Start Docker" in `../start-operator/start.md`. Outcome `docker: running` or `docker: started`: continue. Any other outcome: Docker is missing or not running. This setup then writes nothing to `<settings>` and skips steps 1.4, 1.5, 3, 4.2, 5, 6 and 7. The report says `reads work from the clone; the index needs Docker: <the outcome after "docker: ">, then run setup-operator again`, and lists, under "to add by hand", `KB_PATH` = `<KB_PATH>`, the deny rule `Read(/.claude/settings.local.json)` and the allow rules for the commands that run without Docker (the `printenv`, `git` and `Read` rules of "Allow rules").
-3. `git -C "<project>" ls-files --error-unmatch ".claude/settings.local.json"` exits 0: the file is tracked, and a password in it would be committed. Reply `<settings> is tracked by git; untrack it (git rm --cached) and add it to .gitignore, then run setup-operator again.` and stop. Any other exit code (untracked, or no git repository): continue. No git repository (`git -C "<project>" rev-parse --is-inside-work-tree` fails): the report says `<project> is not a git repository; if you make it one, add .claude/settings.local.json to .gitignore first`. In a git repository, `git -C "<project>" check-ignore -q ".claude/settings.local.json"` exits 1: the file is not ignored and could still be committed; the report says `add .claude/settings.local.json to .gitignore`.
+3. `git -C "<project>" ls-files --error-unmatch ".claude/settings.local.json"` exits 0: the file is tracked, and a password in it would be committed. Reply `<settings> is tracked by git; untrack it (git rm --cached) and add it to .gitignore, then run setup-operator again.` and stop. Any other exit code (untracked, or no git repository): continue. No git repository (`git -C "<project>" rev-parse --is-inside-work-tree` fails or prints `false`): the report says `<project> is not a git repository; if you make it one, add .claude/settings.local.json to .gitignore first`. In a git repository, `git -C "<project>" check-ignore -q ".claude/settings.local.json"` exits 1: the file is not ignored and could still be committed; the report says `add .claude/settings.local.json to .gitignore`.
 4. `docker pull <mcp image>`.
 5. Protect the settings: merge (section "Merge into the settings") a fragment with `permissions.deny` = `["Read(/.claude/settings.local.json)"]` and `permissions.allow` = `["Read(//<plugins folder>/**)"]` (see "Allow rules"). Its `<password state>` is the state for the steps below.
 6. Read `KB_PATH` (`printenv KB_PATH`, or `[Environment]::GetEnvironmentVariable('KB_PATH')`). Set: the project already has a KB. Follow "Locate the KB" in `runtime.md`; it passes: `<kb>`, `<clone>` and `<KB_PATH>` are known, skip steps 2.1 to 2.5 and continue at step 2.6, which puts the clone back on `<default>`. It stops: reply its message plus `KB_PATH points to <value>; fix or remove it in <settings>, then run setup-operator again.` and stop; never replace a `KB_PATH` yourself.
@@ -86,7 +86,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
    It fails: reply `git clone failed: <first error line>` and stop.
 4. Find the manifest with the Glob tool: `**/kb-manifest.json` in the clone, ignoring `.worktrees`. Not exactly one, or its `kb` does not match `^[a-z0-9][a-z0-9-]*$`, or its `contract` is not `"1"`, or its folder relative to the repository root is not `<kb_root>`: remove the staging folder, reply what is wrong, and stop.
 5. `<home>/.kb/<kb>/repo` exists (it holds another URL, since step 2.2 found none): remove the staging folder, reply `<home>/.kb/<kb>/repo already holds a clone of <its origin URL>; one machine keeps one clone per KB id.` and stop. Otherwise create `<kb folder>` (Commands per OS) and move the clone into place with `mv "<home>/.kb/.incoming" "<clone>"` (bash, zsh and PowerShell alike).
-6. `git -C "<clone>" symbolic-ref --short HEAD` must print `<default>`. It prints another branch, or fails because HEAD is detached (`ref HEAD is not a symbolic ref`): `git -C "<clone>" switch --quiet <default>`. The clone holds no local changes, so this changes no content.
+6. `git -C "<clone>" symbolic-ref --short HEAD` must print `<default>`. It prints another branch, or fails because HEAD is detached (`ref HEAD is not a symbolic ref`): `git -C "<clone>" switch --quiet <default>`; the report names the switch. A fresh clone holds no local changes, so there the switch changes no content. A reused clone may: the switch fails on local changes or an unfinished merge; then reply `the read-only clone <clone> cannot switch to <default>: <first error line>; clean it up yourself, then run setup-operator again` and stop. Never add `--force` or `--discard-changes`.
 7. Read `NEO4J_SHELL` (`printenv NEO4J_SHELL`, or `[Environment]::GetEnvironmentVariable('NEO4J_SHELL')`). It is set and differs from `<NEO4J_SHELL>`: the project uses another store, such as a local Neo4j. That is a store switch. Ask exactly: `This project's NEO4J_SHELL is <value>. This setup would replace it with <NEO4J_SHELL>, the Docker store neo4j-<kb>, so every query goes there. Switch?` Yes: step 4.2 replaces the key (`replace_env`). Anything else: reply `kept the current store; nothing was set up` and stop. Never keep a differing `NEO4J_SHELL` silently.
 
 ## 3. Docker and the Neo4j container
@@ -270,7 +270,7 @@ A new or recreated container only. A reused container (step 3a.5) skips to step 
 The new `env` and the MCP server reach only new sessions, so each check runs in a fresh session started in `<project>` with `claude -p`. The setup is done only when all three checks pass. A setup that skipped this step (Docker missing in step 1.2, a recreate declined in step 3a.7) reports `index: not ready — <that reason>`.
 
 1. **Load.** The load runs the manifest's export. The export is not pre-allowed, and a headless session cannot ask, so this one session gets an explicit one-time grant for exactly the two commands update-operator runs (its step 6.2):
-   - Fast-forward the clone first, as update-operator's steps 2.3 and 2.4 do: `git -C "<clone>" fetch --quiet origin`, then `git -C "<clone>" merge --ff-only --quiet origin/<default>`. The session then exports the commit the grant names.
+   - Fast-forward the clone first, as update-operator's steps 2.3 and 2.4 do: `git -C "<clone>" fetch --quiet origin`, then `git -C "<clone>" merge --ff-only --quiet origin/<default>`. The fetch fails: continue on the clone's current commit. The merge fails: reply `the read-only clone <clone> cannot fast-forward to origin/<default>: <first error line>; clean it up yourself, then run setup-operator again` and stop. The session then exports the commit the grant names.
    - `<commit>`: `git -C "<clone>" rev-parse HEAD`; `<export command>`: the manifest's `export.cmd` with `{ref}` replaced by `"<commit>"` and `{out}` by `"<import>/kb-export.json.tmp"`, as update-operator renders it.
    - `<export command>` contains `*`, `;`, `&`, `|`, `)`, a backtick or a line break: it cannot be granted exactly. Run the session without the `--allowedTools` part; the export is refused there, and the failure action is `run "fetch: kb <first resource name of the manifest>" once in an interactive session in <project>, then run setup-operator again`.
    - Otherwise, allowing up to 10 minutes:
@@ -307,13 +307,14 @@ Each `claude -p` here may print `Warning: no stdin data received in 3s, proceedi
 
 ```
 KB <kb> for <project>
-clone: <clone> (<new | reused>) at <first 7 characters of HEAD>
+clone: <clone> (<new | reused | reused, switched from <branch or "detached HEAD"> to <default>>) at <first 7 characters of HEAD>
 KB_PATH: <KB_PATH>
 neo4j: neo4j-<kb> (<new | reused | recreated | not set up: reason>), internal network kb-<kb>, no published ports, data <data>
 mcp: kb-<kb> (<registered | kept | replaced | kept, differs: <difference>; <action> | not set up: reason>)
 settings: <settings> (<added entries, or "unchanged">)
 conflicts: <each conflict line of the merges, or "none">
 to add by hand: <each missing key or rule, or "nothing">
+notes: <each line a step says the report says and that has no line of its own above, or "none">
 index: <ready (<docs> docs at <first 7 characters of <head>>, kb_fulltext ONLINE, explore via MCP kb-<kb>) | not ready — <check>: <reason>; <action>>
 load: <reply of 7.1, verbatim>
 fulltext: <reply of 7.2, verbatim>
