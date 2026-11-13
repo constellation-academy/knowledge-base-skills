@@ -58,6 +58,6 @@ The index is not checked here: the next KB read runs `knowledge-base:update-oper
 |---|---|
 | `docker run` a new `neo4j-<kb>` because the old one is missing or will not start | Stop and name setup-operator: a new container on the same data needs its checks and the developer's yes |
 | Running setup-operator after a reboot when the container only stopped | This skill: setup-operator needs manual permission mode and runs headless checks |
-| Running `sudo` to start the Docker daemon | Reply the `docker: not running` outcome; the developer starts it |
+| Running `sudo` to start the Docker engine on Linux, or starting another runtime than Docker Desktop | Reply the `docker:` outcome of `start.md`; the developer starts it |
 | Reading `.claude/settings.local.json` to find the password or `NEO4J_SHELL` | Not needed: starting the container and the Bolt check use no credentials |
 | Reporting the KB as back while the session's `kb-<kb>` tools are still missing | The `mcp:` line tells the developer to reconnect in `/mcp` |

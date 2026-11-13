@@ -6,25 +6,26 @@ The shell rules in `../update-operator/runtime.md` (section "Shell rules") apply
 
 ## Commands per OS
 
-The session's OS picks the column; Linux uses only the two wait rows. Claude Code running inside WSL is Linux.
+The session's OS picks the column; Linux uses only the first row and the two wait rows. Claude Code running inside WSL is Linux.
 
 | Step | macOS, Linux | Windows (PowerShell) |
 |---|---|---|
-| Docker Desktop is installed | `test -d "/Applications/Docker.app"` | `Test-Path "C:\Program Files\Docker\Docker\Docker Desktop.exe"` |
-| start Docker Desktop | `open -a Docker` | `Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"` |
+| where the docker CLI is | `command -v docker` | `(Get-Command docker -ErrorAction SilentlyContinue).Source` |
+| `<desktop>`, the Docker Desktop app | `/Applications/Docker.app` | the docker CLI's path with its ending `\resources\bin\docker.exe` replaced by `\Docker Desktop.exe`; a path with another ending has no `<desktop>` |
+| `<desktop>` exists | `test -d "/Applications/Docker.app"` | `Test-Path "<desktop>"` |
+| start Docker Desktop | `open -a Docker` | `Start-Process "<desktop>"` |
 | wait for Docker, up to 2 minutes | `bash -c 'for i in $(seq 60); do docker version --format "{{.Server.Version}}" && exit 0; sleep 2; done; exit 1'` | `for ($i = 0; $i -lt 60; $i++) { docker version --format '{{.Server.Version}}'; if ($LASTEXITCODE -eq 0) { break }; Start-Sleep 2 }; docker version --format '{{.Server.Version}}'` |
 | wait for Bolt, up to 3 minutes | `bash -c 'for i in $(seq 90); do docker exec neo4j-<kb> bash -c "(echo > /dev/tcp/127.0.0.1/7687) 2>/dev/null" && exit 0; sleep 2; done; exit 1'` | `for ($i = 0; $i -lt 90; $i++) { docker exec neo4j-<kb> bash -c '(echo > /dev/tcp/127.0.0.1/7687) 2>/dev/null'; if ($LASTEXITCODE -eq 0) { break }; Start-Sleep 2 }; docker exec neo4j-<kb> bash -c '(echo > /dev/tcp/127.0.0.1/7687) 2>/dev/null && echo bolt-ok'` |
 
-On Linux, and on Windows without Docker Desktop (Docker Engine inside a WSL distro), starting the Docker daemon needs root, so the developer starts it.
+On macOS and Windows the Docker engine runs in Docker Desktop's Linux VM, so starting Docker means starting Docker Desktop. On Windows, Docker Desktop is installed per user under `%LOCALAPPDATA%\Programs\DockerDesktop` or per machine under `C:\Program Files\Docker\Docker`; its docker CLI sits in `resources\bin` below that folder in both, so `<desktop>` is found from the CLI. Other runtimes (Colima, OrbStack, Rancher Desktop, Docker Engine inside WSL) are not supported. On Linux the engine runs on the host and starting it needs root, so the developer starts it.
 
 ## Start Docker
 
 1. `docker version --format '{{.Server.Version}}'` prints a version: outcome `docker: running`.
-2. It fails on Linux: outcome `docker: not running — start the Docker daemon: sudo systemctl start docker (sudo service docker start where systemd is off; Docker Desktop for Linux: systemctl --user start docker-desktop)`.
-3. It fails on macOS or Windows: check that Docker Desktop is installed (Commands per OS).
-   - Not installed on Windows: outcome `docker: not running — no Docker Desktop found; start Docker Engine in your WSL distro: open it with wsl, then sudo systemctl start docker (sudo service docker start where systemd is off)`.
-   - Not installed on macOS: outcome `docker: not installed — install Docker Desktop`.
-4. Installed: start Docker Desktop and wait for Docker (Commands per OS). The wait prints a version: outcome `docker: started`. It does not: run `docker version --format '{{.Server.Version}}'` once more; outcome `docker: not running — Docker Desktop did not start (<its first error line>); start it by hand and answer any prompt it shows`.
+2. Otherwise find the docker CLI (Commands per OS). It prints nothing: outcome `docker: not installed — install Docker Desktop (macOS, Windows) or Docker Engine (Linux)`.
+3. Linux: outcome `docker: not running — start the Docker engine (sudo systemctl start docker)`.
+4. macOS or Windows: `<desktop>` (Commands per OS) is missing or does not exist: outcome `docker: not running — no Docker Desktop found next to <the docker CLI's path>; start Docker`.
+5. Start Docker Desktop and wait for Docker (Commands per OS). The wait prints a version: outcome `docker: started`. It does not: run `docker version --format '{{.Server.Version}}'` once more; outcome `docker: not running — Docker Desktop did not start (<its first error line>); start it by hand and answer any prompt it shows`.
 
 ## Start the container
 
