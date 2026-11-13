@@ -25,7 +25,7 @@ If you cannot supply these, use `knowledge-base:access-orchestrator`: it takes t
    - A document with a `superseded by` link is outdated: answer from its newest successor and mention the old one only as replaced.
    - Documents that contradict each other: state both, with their paths, and say they conflict.
    - No fetched text says anything about the question's subject, and this is the first pass: run steps 1 to 3 once more with `explore: kb <the question's subject words and their other word forms>` (`cache caching cached`), fetching only documents not fetched yet. Still nothing: the KB is silent. Never call it silent from titles and excerpts alone.
-4. **Answer** in this shape:
+4. **Answer** in English, whatever the question's language; a team skill that wraps this skill may set another language. Use this shape:
 
 ```
 <the answer, one to a few sentences>
