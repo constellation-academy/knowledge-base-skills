@@ -19,7 +19,7 @@ If you cannot supply these, use `knowledge-base:access-orchestrator`: it takes t
 
 1. **Material.** Invoke `knowledge-base:content-provider` (Skill tool) with `explore: kb <question>`.
    - It returns one of the "Locate the KB" stop messages (`This project has no knowledge base …`, `KB_PATH …`): return that message and stop.
-   - It returns `needs the KB index: run knowledge-base:setup-operator`: answer exactly `This answer needs the KB index: run knowledge-base:setup-operator.` and stop.
+   - It returns a line starting with `needs the KB index`: answer exactly `This answer needs the KB index (<reason>).`, with the reason from that line, and stop.
 2. **Read.** Pick the hits whose title or excerpt bears on the question, at most 5, and fetch them in one call: `fetch: kb <path>, <path>, …`. Add a document a hit's links point to (`links out`, `superseded by`) when the hit's text depends on it. Never read KB files any other way.
 3. **Judge.** From the fetched texts only:
    - A document with a `superseded by` link is outdated: answer from its newest successor and mention the old one only as replaced.
