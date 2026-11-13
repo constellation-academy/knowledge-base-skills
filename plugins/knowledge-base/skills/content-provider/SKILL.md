@@ -10,7 +10,7 @@ description: Use when a skill needs named resources or documents from the projec
 `fetch: kb <resource names or document paths>` | `explore: kb <question>`
 
 - `fetch` takes a comma-separated list. An item without `/` and `.` is a resource name from the manifest's `resources`; any other item is a document path relative to the KB root (an assembled document's path ends in `/`).
-- `explore` takes one question in plain text.
+- `explore` takes one question in plain text, or search terms; step 3.1 derives the terms either way.
 
 Returns the KB's content, never an answer. Answering is `knowledge-base:answer-engine`'s job.
 
@@ -50,11 +50,12 @@ Index unavailable: return `explore: <question>` and the line `needs the KB index
 
 Index available:
 
-1. **Hits.** Up to 10 documents for the question.
-   - If the session has tools of the MCP server `kb-<kb>` (`mcp__kb-<kb>__…`): read `<queries>/search.cypher` and run its text with the server's read-Cypher tool, parameters `kb` = `<kb>`, `query` = the question, `limit` = 10. Values go only in the parameters, never into the query text.
+1. **Terms.** The full-text search ranks by every word it gets, so words that only frame the question push the documents on its subject down. `<terms>` are the nouns, names and key verbs the question is about, including words that narrow the subject (a component, product or team name), written in the language of the KB's documents (translate a question asked in another language). Words that only frame the question are not terms: question words, auxiliaries, pronouns, prepositions, articles, punctuation, and words about asking or about the KB itself (`say`, `tell`, `the KB`, `knowledge base`, `documents`). A word about the KB that is the subject stays: "What does the KB say about the knowledge base contract?" gives `knowledge base contract`. "What does the KB say about caching?" gives `caching`. Nothing remains: `<terms>` is the whole question.
+2. **Hits.** Up to 10 documents for `<terms>`.
+   - If the session has tools of the MCP server `kb-<kb>` (`mcp__kb-<kb>__…`): read `<queries>/search.cypher` and run its text with the server's read-Cypher tool, parameters `kb` = `<kb>`, `query` = `<terms>`, `limit` = 10. Values go only in the parameters, never into the query text.
    - Otherwise, or if that call fails: run the query `search` with the same parameters.
-   - No hits: run it once more with only the question's content words (no question words, articles or punctuation). Still none: the material is empty.
-2. **Links.** For the top 5 hits:
+   - No hits: run it once more with `<terms>` plus their other word forms (`cache caching cached`; singular and plural). Still none: the material is empty.
+3. **Links.** For the top 5 hits:
    - With the MCP server: one read query through it (the store guard already ran in the search step, which every hit comes from), parameters `kb` and `paths` (the hit paths):
 
      ```
@@ -68,7 +69,7 @@ Index available:
 
      Further read queries the question needs (by type, status or tag) are allowed; each matches only `Doc {kb: $kb}` and never returns more than a 200-character excerpt of `body`.
    - Without it: the queries `related` and `supersede-chain` with `path` per hit. `related` rows give links out (`direction` `out`) and links in (`in`). `supersede-chain` gives the hit's own type and status (its row with `distance` 0), what it supersedes (positive `distance`) and what supersedes it (negative `distance`).
-3. Return the material in score order, without judging it. The first line is the header below, written exactly, with `MCP kb-<kb>` when the hits came through the MCP server and `fixed queries` otherwise: callers check it to see which source answered.
+4. Return the material in score order, without judging it. The first line is the header below, written exactly, with `MCP kb-<kb>` when the hits came through the MCP server and `fixed queries` otherwise: callers check it to see which source answered.
 
 ```
 KB <kb> at <first 7 characters of commit>; explore via <MCP kb-<kb> | fixed queries>
