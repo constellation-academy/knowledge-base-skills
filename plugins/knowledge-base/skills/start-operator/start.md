@@ -21,7 +21,7 @@ Use the column of the session's OS.
 | Docker Desktop is installed | `test -d "/Applications/Docker.app"` | — | `<desktop>`: the docker CLI's path with its ending `\resources\bin\docker.exe` replaced by `\Docker Desktop.exe`; a path with another ending has none. `Test-Path "<desktop>"` |
 | start Docker Desktop | `open -a Docker` | — | `Start-Process "<desktop>"` |
 | wait for Docker, up to 2 minutes; run it allowing up to 4 minutes | `bash -c 'for i in $(seq 60); do docker version --format "{{.Server.Version}}" && exit 0; sleep 2; done; exit 1'` | — | `for ($i = 0; $i -lt 60; $i++) { docker version --format '{{.Server.Version}}'; if ($LASTEXITCODE -eq 0) { break }; Start-Sleep 2 }; docker version --format '{{.Server.Version}}'` |
-| wait for Bolt, up to 3 minutes; run it allowing up to 5 minutes | `bash -c 'for i in $(seq 90); do docker exec neo4j-<kb> bash -c "(echo > /dev/tcp/127.0.0.1/7687) 2>/dev/null" && exit 0; case "$(docker inspect --format "{{.State.Status}}" neo4j-<kb>)" in exited) exit 1;; dead) exit 1;; esac; sleep 2; done; exit 1'` | as macOS | `for ($i = 0; $i -lt 90; $i++) { docker exec neo4j-<kb> bash -c '(echo > /dev/tcp/127.0.0.1/7687) 2>/dev/null'; if ($LASTEXITCODE -eq 0) { break }; if ((docker inspect --format '{{.State.Status}}' neo4j-<kb>) -in 'exited', 'dead') { break }; Start-Sleep 2 }; docker exec neo4j-<kb> bash -c '(echo > /dev/tcp/127.0.0.1/7687) 2>/dev/null && echo bolt-ok'` |
+| wait for Bolt, up to 3 minutes; run it allowing up to 5 minutes | `bash -c 'for i in $(seq 90); do docker exec neo4j-<kb> bash -c "(echo > /dev/tcp/127.0.0.1/7687) 2>/dev/null" && echo bolt-ok && exit 0; case "$(docker inspect --format "{{.State.Status}}" neo4j-<kb>)" in exited) exit 1;; dead) exit 1;; esac; sleep 2; done; exit 1'` | as macOS | `for ($i = 0; $i -lt 90; $i++) { docker exec neo4j-<kb> bash -c '(echo > /dev/tcp/127.0.0.1/7687) 2>/dev/null'; if ($LASTEXITCODE -eq 0) { break }; if ((docker inspect --format '{{.State.Status}}' neo4j-<kb>) -in 'exited', 'dead') { break }; Start-Sleep 2 }; docker exec neo4j-<kb> bash -c '(echo > /dev/tcp/127.0.0.1/7687) 2>/dev/null && echo bolt-ok'` |
 
 ## Start Docker
 
@@ -30,7 +30,7 @@ Use the column of the session's OS.
 3. Linux inside WSL: outcome `docker: not running — Claude Code inside WSL is not supported; run it on Windows with Docker Desktop`.
 4. Linux: outcome `docker: not running — <the first error line of step 1>; start the Docker engine (sudo systemctl start docker)`.
 5. macOS without `/Applications/Docker.app`: outcome `docker: not running — no Docker Desktop in /Applications; start Docker`. Windows without `<desktop>`: outcome `docker: not running — no Docker Desktop next to <the docker CLI's path>; start Docker`.
-6. Start Docker Desktop and wait for Docker. The bash line exits 0, or the PowerShell line's last line is a version: outcome `docker: started`. Otherwise: outcome `docker: not running — Docker Desktop did not start (<the wait's last error line>); start it by hand and answer any prompt it shows`.
+6. Start Docker Desktop and wait for Docker. The wait's last output line is a version: outcome `docker: started`. Otherwise: outcome `docker: not running — Docker Desktop did not start (<the wait's last error line>); start it by hand and answer any prompt it shows`.
 
 ## Start the container
 
@@ -47,7 +47,7 @@ The caller has made sure that `neo4j-<kb>` exists.
 
 Run "wait for Bolt" (Commands per OS); a first start installs APOC, so it waits up to three minutes. The loop runs on the host and repeats `docker exec`, because Docker refuses `docker exec` while a container is `restarting`; it ends early when the container has exited.
 
-The bash line exits 0, or the PowerShell line's last line is `bolt-ok`: outcome `neo4j: Bolt answers`. Otherwise run `docker inspect --format '{{.State.Status}}' neo4j-<kb>` and `docker logs --tail 20 neo4j-<kb>`; the outcome carries those log lines:
+The wait's last output line is `bolt-ok`: outcome `neo4j: Bolt answers`. Otherwise run `docker inspect --format '{{.State.Status}}' neo4j-<kb>` and `docker logs --tail 20 neo4j-<kb>`; the outcome carries those log lines:
 
 - `exited` or `dead`: `neo4j: not started — neo4j-<kb> exited`.
 - `restarting`: `neo4j: not started — neo4j-<kb> keeps restarting`.

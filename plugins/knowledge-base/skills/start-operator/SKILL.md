@@ -31,9 +31,12 @@ Follow "Start Docker" in `start.md`. Outcome `docker: running` or `docker: start
 
 ## 4. The MCP server
 
-`claude mcp get kb-<kb>` in the project root. It fails: the `mcp:` line is `kb-<kb> is not registered; run knowledge-base:setup-operator`. It succeeds: the `mcp:` line is `if kb-<kb> shows as failed in /mcp, reconnect it there or start a new session`.
+`claude mcp get kb-<kb>` in the session's working directory, the project root. The `mcp:` line:
 
-The MCP server starts with the session, so a session that began while Docker or Neo4j was down may hold a failed `kb-<kb>`. The session cannot run `/mcp` itself; the developer checks and reconnects it.
+- It fails: `kb-<kb> is not registered; run knowledge-base:setup-operator`.
+- Docker was `started` in step 2: `in /mcp, reconnect kb-<kb>, or start a new session`. The server starts with the session and runs in Docker, so a session that began while Docker was down holds a failed `kb-<kb>`; the session cannot run `/mcp` itself.
+- Otherwise its `Status:` line reads `✔ Connected`: `kb-<kb> connected`. The server reaches Neo4j only per query, so a Neo4j restart needs no reconnect.
+- Any other status: `kb-<kb> <status>; run knowledge-base:setup-operator`.
 
 ## 5. Report
 
@@ -48,7 +51,7 @@ next: <each line below that applies, or "nothing">
 `next:` lines, in this order:
 - Docker was `started`: `if "Start Docker Desktop when you sign in" is off in Docker Desktop's settings, turn it on so the KB comes back after a reboot`;
 - the restart-policy line of step 3.3;
-- a request of the developer hit the unavailable index: `after reconnecting, ask again: <that request>`.
+- a request of the developer hit the unavailable index: `ask again: <that request>`.
 
 The index is not checked here: the next KB read runs `knowledge-base:update-operator`, which reloads it when it is behind the clone.
 
