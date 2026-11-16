@@ -184,7 +184,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 
 ### Allow rules
 
-Each rule is written with the paths exactly as the skills write them in commands. On Windows, add every `Bash(…)` rule once more as `PowerShell(…)` with the same text, replace the three `printenv` rules by `PowerShell([Environment]::GetEnvironmentVariable('KB_PATH'))` and the same for `NEO4J_SHELL` and `NEO4J_DATABASE`, and replace the `find` rule's `PowerShell(…)` copy by `PowerShell((Get-Item "<import>/reload.lock").LastWriteTime.AddMinutes(10) -lt (Get-Date))`, the lock's age check in PowerShell (`../update-operator/runtime.md`, section "Reload lock").
+Each rule is written with the paths exactly as the skills write them in commands. On Windows, add every `Bash(…)` rule once more as `PowerShell(…)` with the same text, replace the three `printenv` rules by `PowerShell([Environment]::GetEnvironmentVariable('KB_PATH'))` and the same for `NEO4J_SHELL` and `NEO4J_DATABASE`, and replace the `find` rule's `PowerShell(…)` copy by `PowerShell((Get-Item "<import>/reload.lock/*").LastWriteTime.AddMinutes(30) -lt (Get-Date))`, the lock's age check in PowerShell (`../update-operator/runtime.md`, section "Reload lock").
 
 ```
 Bash(printenv KB_PATH)
@@ -202,8 +202,10 @@ Bash(chmod 644 "<import>/kb-export.json.tmp")
 Bash(rm "<import>/kb-export.json")
 Bash(mv "<import>/kb-export.json.tmp" "<import>/kb-export.json")
 Bash(mkdir "<import>/reload.lock")
+Bash(mkdir "<import>/reload.lock/*")
 Bash(rmdir "<import>/reload.lock")
-Bash(find "<import>/reload.lock" -maxdepth 0 -mmin +10)
+Bash(rmdir "<import>/reload.lock/*")
+Bash(find "<import>/reload.lock/*" -maxdepth 0 -mmin +30)
 Read(//<plugins folder>/**)
 Read(//<kb folder>/**)
 Edit(~/.kb/<kb>/import/queries/*.cypher)
@@ -217,8 +219,9 @@ mcp__kb-<kb>__*
 
 - `<plugins folder>`: the parent folder of the plugin root (the plugin root is two folders above this skill's directory). The skills read their shared files there (`runtime.md`, the contract, the query files), and list the query folder with `ls`; the rule covers both, and every installed plugin version.
 - `//<plugins folder>/**` and `//<kb folder>/**` are absolute paths without their leading `/`, after `//`; on Windows in the form `//c/Users/…` with forward slashes. The KB folder is readable only; it is not an additional working directory, so no permission mode, `acceptEdits` included, edits anything under it beyond the `Edit` rules above.
-- Every `Bash` rule but one is an exact command. The `Edit` rules admit only text no program runs as code: `.cypher` files in the query folder, which only `cypher-shell` reads; Markdown documents in a worktree; and the writer's message files next to the worktrees. A script, `package.json`, a `.git` file or a companion change of another type in a worktree prompts, with its content shown, before it is written. So a later approved command, such as `pr.pre_commit`, runs only code the developer has seen.
-- Accepted risk, the one wildcard rule: the trailing `*` of the `<NEO4J_SHELL>` rule admits any further `cypher-shell` arguments. Together with the `Edit` rule on the query folder, a session can write and run any Cypher against this KB's own store, which holds only the rebuildable index. Nothing leaves the machine that way: the store has no network route outside Docker, so `LOAD CSV` and APOC loads from a URL fail, APOC outside the allowlist is not loaded, file loads stay in `/import`, and an inserted `-a <host>` reaches only containers on `kb-<kb>`.
+- Every `Bash` rule is an exact command except four: the `<NEO4J_SHELL>` rule and the three reload-lock rules whose `*` stands for a run's `<run id>`. The reload lock's listing, `ls "<import>/reload.lock"`, needs no rule of its own: `ls` is read-only, and `Read(//<kb folder>/**)` covers the folder. The `Edit` rules admit only text no program runs as code: `.cypher` files in the query folder, which only `cypher-shell` reads; Markdown documents in a worktree; and the writer's message files next to the worktrees. A script, `package.json`, a `.git` file or a companion change of another type in a worktree prompts, with its content shown, before it is written. So a later approved command, such as `pr.pre_commit`, runs only code the developer has seen.
+- Accepted risk, the reload-lock wildcards: each `*` admits any text in place of the run id. The `mkdir` rule then creates only empty folders, the `rmdir` rule removes only empty folders, and the `find` rule never deletes, writes or runs a command: Claude Code does not auto-approve a `find` with an action such as `-delete` or `-exec` under a wildcard rule.
+- Accepted risk, the query wildcard: the trailing `*` of the `<NEO4J_SHELL>` rule admits any further `cypher-shell` arguments. Together with the `Edit` rule on the query folder, a session can write and run any Cypher against this KB's own store, which holds only the rebuildable index. Nothing leaves the machine that way: the store has no network route outside Docker, so `LOAD CSV` and APOC loads from a URL fail, APOC outside the allowlist is not loaded, file loads stay in `/import`, and an inserted `-a <host>` reaches only containers on `kb-<kb>`.
 - Not pre-allowed, so these prompt, unless the developer's own permission mode, rules or hooks allow them:
   - the export command, once per reindex, with its `cd` into the clone;
   - `pr.pre_commit`, with its `cd` into the worktree;

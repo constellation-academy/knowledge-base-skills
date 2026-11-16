@@ -63,7 +63,7 @@ describe("contract", () => {
 describe("update-operator publish step", () => {
   const setup = readFileSync(join(PLUGIN, "skills/setup-operator/SKILL.md"), "utf8");
   const start = updater.indexOf("\n3. Only after the export exited 0");
-  const step = updater.slice(start, updater.indexOf("\n4. Run the query `load`", start));
+  const step = updater.slice(start, updater.indexOf("\n4. ", start));
   const commands = [...step.matchAll(/```\n([\s\S]*?)```/g)].flatMap((m) => m[1].trim().split(/;\s*/));
 
   test("makes the export readable for the container's neo4j user before moving it into place", () => {
@@ -82,7 +82,7 @@ describe("update-operator publish step", () => {
   });
 
   test("a load that cannot open the export after a skipped chmod names the cause and the one-time setup migration", () => {
-    const load = updater.slice(updater.indexOf("\n4. Run the query `load`"), updater.indexOf("\n5. The row's `sha`"));
+    const load = updater.slice(updater.indexOf("\n4. ", start), updater.indexOf("\n5. The row's `sha`"));
     expect(load).toContain("Cannot open file");
     expect(load).toContain("run knowledge-base:setup-operator once");
   });
@@ -112,7 +112,35 @@ describe("update-operator reload lock", () => {
     expect(reload).not.toContain("The file tools still find `<import>/kb-export.json.tmp` afterwards");
   });
 
-  test("the contract names the lock in the local layout", () => {
-    expect(section(contract, "## Local layout")).toContain("`~/.kb/<kb id>/import/reload.lock`");
+  test("the contract names the lock and its owner folder in the local layout", () => {
+    const layout = section(contract, "## Local layout");
+    expect(layout).toContain("`~/.kb/<kb id>/import/reload.lock`");
+    expect(layout).toContain("`<run id>`");
+  });
+
+  test("the contract's Freshness names the 30-minute stale limit and the taken-over outcome", () => {
+    const freshness = section(contract, "## Freshness");
+    expect(freshness).toContain("more than 30 minutes");
+    expect(freshness).not.toContain("10 minutes ago");
+    expect(freshness).toContain("taken over");
+  });
+
+  test("the run checks it still owns the lock before the move and before the load", () => {
+    const move = reload.slice(reload.indexOf("\n3. "), reload.indexOf('rm "<import>/kb-export.json"; mv'));
+    const load = reload.slice(reload.indexOf("\n4. "), reload.indexOf("\n5. "));
+    for (const s of [move, load]) expect(s).toContain("ownership check");
+    expect(reload).toContain("`index: unavailable — the reload lock was taken over; the previous index is kept`");
+  });
+
+  test("the release removes this run's owner folder first and touches nothing else when it is gone", () => {
+    const release = reload.slice(reload.indexOf("\n6. "));
+    expect(release).toContain('`rmdir "<import>/reload.lock/<run id>"`');
+    expect(release).toContain("touch nothing else");
+    expect(release).not.toContain("after 10 minutes");
+  });
+
+  test("a stale lock is broken by removing its owner folder, so only one run can break it", () => {
+    expect(beforeFirst).toContain('`rmdir "<import>/reload.lock/<old>"`');
+    expect(beforeFirst).toContain("`ls \"<import>/reload.lock\"`");
   });
 });

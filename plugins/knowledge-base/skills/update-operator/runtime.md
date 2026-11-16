@@ -84,36 +84,70 @@ A query fails when it cannot start or exits non-zero. Its reason is the first li
 
 ## Reload lock
 
-Runs on one machine share `<import>` and the fixed names `kb-export.json.tmp` and `kb-export.json`, so only one run at a time may reload the index. The lock is the folder `<import>/reload.lock`. It stays empty, so its modification time is the time it was taken; nothing is ever written into it.
+Runs on one machine share `<import>` and the fixed names `kb-export.json.tmp` and `kb-export.json`, so only one run at a time may reload the index. The lock is the folder `<import>/reload.lock`. The run that holds it is named by the one folder inside it, its owner folder `<import>/reload.lock/<run id>`.
 
-Take the lock, in one command that runs unchanged in bash, zsh and PowerShell:
+- `<run id>`: 12 random hexadecimal characters (`0` to `9`, `a` to `f`) that a run chooses once, before its first lock command, and uses for every lock command of that run.
+- `<old>`: the name of an owner folder this run found in the lock, as the listing prints it.
+- Nothing is ever written into either folder. The owner folder stays empty, so its modification time is the time its run took the lock: the lock's age is the owner folder's age.
+
+Every lock command runs unchanged in bash, zsh and PowerShell, except the age check.
+
+Take the lock with two commands. Run the second only after the first succeeded:
 
 ```
 mkdir "<import>/reload.lock"
 ```
 
-It succeeds only when the folder did not exist; when it exists, it fails with an error saying so. In bash, zsh, and PowerShell on macOS and Linux (where `mkdir` is the system's own command), creating the folder is atomic. In PowerShell on Windows, `mkdir` checks for the folder and then creates it, so two runs that take the lock in the same instant can both succeed; the lock does not guard against that.
+```
+mkdir "<import>/reload.lock/<run id>"
+```
 
-Release the lock, unchanged in all three shells:
+`mkdir` succeeds only when the folder did not exist; when it exists, it fails with an error saying so. In bash, zsh, and PowerShell on macOS and Linux (where `mkdir` is the system's own command), creating the folder is atomic. In PowerShell on Windows, `mkdir` checks for the folder and then creates it, so two runs that take the lock in the same instant can both succeed; the lock does not guard against that.
+
+List the lock's owner folder:
+
+```
+ls "<import>/reload.lock"
+```
+
+It prints nothing: the lock has no owner folder yet, because another run is between its two take commands. It prints one name: that is `<old>`, or this run's own `<run id>`. An error that says the path does not exist, in whatever language: the lock is gone.
+
+Check the age of the owner folder `<old>`. This is the one lock command that differs per shell, an exception to "Shell rules". In bash and zsh:
+
+```
+find "<import>/reload.lock/<old>" -maxdepth 0 -mmin +30
+```
+
+It prints the owner folder's path: the lock is stale. It prints nothing: the lock is fresh. In PowerShell:
+
+```
+(Get-Item "<import>/reload.lock/<old>").LastWriteTime.AddMinutes(30) -lt (Get-Date)
+```
+
+It prints `True`: stale. `False`: fresh. In both shells, an error that says the path does not exist, in whatever language, means the owner folder is gone: its run released the lock, or another run broke it, in the meantime. Any other failure, or a denial, follows the skill step that runs the check.
+
+Break a stale lock with two commands. Run the second only after the first succeeded:
+
+```
+rmdir "<import>/reload.lock/<old>"
+```
 
 ```
 rmdir "<import>/reload.lock"
 ```
 
-`rmdir` removes only an empty folder, the one form that runs unchanged in all three shells.
+Only one run can remove `<old>`: when two runs break the same stale lock, the later `rmdir` of `<old>` fails with an error that says the folder does not exist, and that run breaks nothing.
 
-Check the lock's age. This is the one lock command that differs per shell, an exception to "Shell rules". In bash and zsh:
-
-```
-find "<import>/reload.lock" -maxdepth 0 -mmin +10
-```
-
-It prints the lock's path: the lock is stale. It prints nothing: the lock is fresh. In PowerShell:
+Release the lock with two commands. Run the second only after the first succeeded:
 
 ```
-(Get-Item "<import>/reload.lock").LastWriteTime.AddMinutes(10) -lt (Get-Date)
+rmdir "<import>/reload.lock/<run id>"
 ```
 
-It prints `True`: stale. `False`: fresh. In both shells, an error that says the path does not exist, in whatever language, means the lock is gone: its holder released it in the meantime. Any other failure, or a denial, follows the skill step that runs the check.
+```
+rmdir "<import>/reload.lock"
+```
 
-Stale means the lock was taken more than 10 minutes ago, the export's time limit. `find` counts whole minutes: on macOS it calls a lock stale after more than 10 minutes, GNU `find` (Linux, Git Bash) from 11 minutes on. PowerShell compares to the second.
+The first fails with an error that says the folder does not exist when another run broke this run's lock and may hold its own: the run then touches nothing else. `rmdir` removes only an empty folder, the one form that runs unchanged in all three shells, so it never removes another run's owner folder with the lock.
+
+Stale means the owner folder was created more than 30 minutes ago: above the export's 10-minute time limit plus the load. `find` counts whole minutes: on macOS it calls a lock stale after more than 30 minutes, GNU `find` (Linux, Git Bash) from 31 minutes on. PowerShell compares to the second.

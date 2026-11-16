@@ -205,7 +205,7 @@ beforeEach(async () => {
 const publishCommands = (): string[] => {
   const skill = readFileSync(join(import.meta.dir, "../plugins/knowledge-base/skills/update-operator/SKILL.md"), "utf8");
   const start = skill.indexOf("\n3. Only after the export exited 0");
-  const step = skill.slice(start, skill.indexOf("\n4. Run the query `load`", start));
+  const step = skill.slice(start, skill.indexOf("\n4. ", start));
   return [...step.matchAll(/```\n([\s\S]*?)```/g)].map((m) => m[1].trim().replaceAll("<import>", IMPORT));
 };
 
