@@ -7,7 +7,7 @@ description: Use when a developer wants the project's knowledge base (KB) set up
 
 Sets up one KB for the current project, once per project and machine: the read-only clone, the KB's Neo4j in Docker, the read-only Neo4j MCP server, and the project's local settings. Then fresh sessions load the index and check that it holds the clone's commit and answers a search through the MCP server; the setup is done only when those checks pass.
 
-The layout, the env keys and the isolation rules are in the contract, `contracts/knowledge-base.v1.md` at the plugin root (two folders above this skill's directory), sections "Local layout", "Project configuration" and "Isolation". The shell rules in `../update-operator/runtime.md` (section "Shell rules") apply to every command here, with two exceptions: the few lines in "Commands per OS" below and in `start.md`, and the text inside single quotes that the host shell does not run: Docker `--format` and `--filter` literals (`{{…}}`, `^…$`) and the script passed to `bash -c` inside a container. Docker and an existing Neo4j container are started, and Bolt is awaited, only through the sections of `../start-operator/start.md` (the `start-operator` skill's folder), which this skill follows; the one exception is the rollback of step 3a.7.7, which restarts the renamed old container directly. When a command is denied or fails where this skill names no outcome, follow "Denied or failed commands" there: stop and report the command and the reason. The setup needs manual permission mode: auto mode denies the settings merge, which writes permission rules into this session's own project settings.
+The layout, the env keys and the isolation rules are in the contract, `contracts/knowledge-base.v1.md` at the plugin root (two folders above this skill's directory), sections "Local layout", "Project configuration" and "Isolation". The shell rules in `../update-operator/runtime.md` (section "Shell rules") apply to every command here, with two exceptions: the few lines in "Commands per OS" below and in `start.md`, and the text inside single quotes that the host shell does not run: Docker `--format` and `--filter` literals (`{{…}}`, `^…$`) and the script passed to `bash -c` inside a container. Docker and an existing Neo4j container are started, and Bolt is awaited, only through the sections of `../start-operator/start.md` (the `start-operator` skill's folder), which this skill follows; the one exception is the rollback of step 3a.7.7, which restarts the renamed old container directly. When a command is denied or fails where this skill names no outcome, follow "Denied or failed commands" there: stop and report the command and the reason. The setup runs in manual (default) permission mode. In auto mode it needs two allow rules in the developer's user settings, `Edit(~/.kb/setup-fragment.json)` and `Bash(docker *)` (on Windows also `PowerShell(docker *)`): without them auto mode denies the fragment write or the settings merge, which write permission rules into this session's own project settings.
 
 ## Rules
 
@@ -42,7 +42,7 @@ The layout, the env keys and the isolation rules are in the contract, `contracts
 
 ## Merge into the settings
 
-Write `<fragment>` with the file tools: a JSON object with the `env` keys and the `permissions` lists (`allow`, `deny`) to add. Create `<project>/.claude` if it is missing (Commands per OS), so Docker does not create it as another user; `.claude` is a protected path, so this one command always asks the developer, and a headless session cannot run it. Then run, unchanged:
+Write `<fragment>` with the file tools (a fragment left by a failed run is read first, since the Write tool overwrites only a file it has read; it holds no secret), and run the merge only after the write succeeded: a JSON object with the `env` keys and the `permissions` lists (`allow`, `deny`) to add. Create `<project>/.claude` if it is missing (Commands per OS), so Docker does not create it as another user; `.claude` is a protected path, so this one command always asks the developer, and a headless session cannot run it. Then run, unchanged:
 
 ```
 docker run --rm --network none -v "<scripts>:/s:ro" -v "<home>/.kb:/f" -v "<project>/.claude:/w" --entrypoint python <mcp image> /s/merge-settings.py /f/setup-fragment.json /w/settings.local.json
@@ -51,7 +51,7 @@ docker run --rm --network none -v "<scripts>:/s:ro" -v "<home>/.kb:/f" -v "<proj
 - A missing `<settings>` is created with mode 600 and the owner of `<project>/.claude`. An existing one keeps its owner and other keys and gets mode 600.
 - A missing key or entry is added (`added …`); one with the same value stays (`kept …`). A key with another value is never changed: `conflict env <key>`, with the current and wanted value for `KB_PATH`, `NEO4J_SHELL`, `NEO4J_USERNAME` and `NEO4J_DATABASE` only. Every conflict goes into the report.
 - `error: … nothing changed` (`<settings>` is not valid JSON, or its `env`, `permissions` or a permission list has the wrong type): the script wrote and deleted nothing; reply that line and stop.
-- The command is denied by auto mode: reply `auto mode blocks the settings merge; switch this session to manual mode (shift+tab), then run setup-operator again` and stop.
+- The fragment write or the merge command is denied by auto mode: reply `auto mode blocks the settings merge; switch this session to manual mode (shift+tab), or add Edit(~/.kb/setup-fragment.json) and Bash(docker *) to your user settings (on Windows also PowerShell(docker *)), then run setup-operator again` and stop.
 
 ## Commands per OS
 
@@ -68,10 +68,10 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 
 1. Get `<home>`. Run `git --version` and `claude --version`; either fails: reply `setup-operator needs git and the claude CLI on PATH.` and stop.
 2. Follow "Start Docker" in `../start-operator/start.md`. Outcome `docker: running` or `docker: started`: continue. Any other outcome: Docker is missing or not running. This setup then writes nothing to `<settings>` and skips steps 1.4, 1.5, 3, 4.2, 5, 6 and 7. The report says `reads work from the clone; the index needs Docker: <the outcome after "docker: ">, then run setup-operator again`, and lists, under "to add by hand", `KB_PATH` = `<KB_PATH>`, the deny rule `Read(/.claude/settings.local.json)` and the allow rules for the commands that run without Docker (the `printenv`, `git` and `Read` rules of "Allow rules").
-3. `git -C "<project>" ls-files --error-unmatch ".claude/settings.local.json"` exits 0: the file is tracked, and a password in it would be committed. Reply `<settings> is tracked by git; untrack it (git rm --cached) and add it to .gitignore, then run setup-operator again.` and stop. Any other exit code (untracked, or no git repository): continue. In a git repository, `git -C "<project>" check-ignore -q ".claude/settings.local.json"` exits 1: the file is not ignored and could still be committed; the report says `add .claude/settings.local.json to .gitignore`.
+3. `git -C "<project>" ls-files --error-unmatch ".claude/settings.local.json"` exits 0: the file is tracked, and a password in it would be committed. Reply `<settings> is tracked by git; untrack it (git rm --cached) and add it to .gitignore, then run setup-operator again.` and stop. Any other exit code (untracked, or no git repository): continue. No git repository (`git -C "<project>" rev-parse --is-inside-work-tree` fails or prints `false`): the report says `<project> is not a git repository; if you make it one, add .claude/settings.local.json to .gitignore first`. In a git repository, `git -C "<project>" check-ignore -q ".claude/settings.local.json"` exits 1: the file is not ignored and could still be committed; the report says `add .claude/settings.local.json to .gitignore`.
 4. `docker pull <mcp image>`.
 5. Protect the settings: merge (section "Merge into the settings") a fragment with `permissions.deny` = `["Read(/.claude/settings.local.json)"]` and `permissions.allow` = `["Read(//<plugins folder>/**)"]` (see "Allow rules"). Its `<password state>` is the state for the steps below.
-6. Read `KB_PATH` (`printenv KB_PATH`, or `[Environment]::GetEnvironmentVariable('KB_PATH')`). Set: the project already has a KB. Follow "Locate the KB" in `runtime.md`; it passes: `<kb>`, `<clone>` and `<KB_PATH>` are known, skip steps 2.1 to 2.6. It stops: reply its message plus `KB_PATH points to <value>; fix or remove it in <settings>, then run setup-operator again.` and stop; never replace a `KB_PATH` yourself.
+6. Read `KB_PATH` (`printenv KB_PATH`, or `[Environment]::GetEnvironmentVariable('KB_PATH')`). Set: the project already has a KB. Follow "Locate the KB" in `runtime.md`; it passes: `<kb>`, `<clone>` and `<KB_PATH>` are known, skip steps 2.1 to 2.5 and continue at step 2.6, which puts the clone back on `<default>`. It stops: reply its message plus `KB_PATH points to <value>; fix or remove it in <settings>, then run setup-operator again.` and stop; never replace a `KB_PATH` yourself.
 
 ## 2. Clone the KB
 
@@ -86,7 +86,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
    It fails: reply `git clone failed: <first error line>` and stop.
 4. Find the manifest with the Glob tool: `**/kb-manifest.json` in the clone, ignoring `.worktrees`. Not exactly one, or its `kb` does not match `^[a-z0-9][a-z0-9-]*$`, or its `contract` is not `"1"`, or its folder relative to the repository root is not `<kb_root>`: remove the staging folder, reply what is wrong, and stop.
 5. `<home>/.kb/<kb>/repo` exists (it holds another URL, since step 2.2 found none): remove the staging folder, reply `<home>/.kb/<kb>/repo already holds a clone of <its origin URL>; one machine keeps one clone per KB id.` and stop. Otherwise create `<kb folder>` (Commands per OS) and move the clone into place with `mv "<home>/.kb/.incoming" "<clone>"` (bash, zsh and PowerShell alike).
-6. `git -C "<clone>" symbolic-ref --short HEAD` must print `<default>`. It prints another branch: `git -C "<clone>" switch --quiet <default>`. The clone holds no local changes, so this changes no content.
+6. `git -C "<clone>" symbolic-ref --short HEAD` must print `<default>`. It prints another branch, or fails because HEAD is detached (`ref HEAD is not a symbolic ref`): `git -C "<clone>" switch --quiet <default>`; the report names the switch. A fresh clone holds no local changes, so there the switch changes no content. A reused clone may: the switch fails on local changes or an unfinished merge; then reply `the read-only clone <clone> cannot switch to <default>: <first error line>; clean it up yourself, then run setup-operator again` and stop. Never add `--force` or `--discard-changes`.
 7. Read `NEO4J_SHELL` (`printenv NEO4J_SHELL`, or `[Environment]::GetEnvironmentVariable('NEO4J_SHELL')`). It is set and differs from `<NEO4J_SHELL>`: the project uses another store, such as a local Neo4j. That is a store switch. Ask exactly: `This project's NEO4J_SHELL is <value>. This setup would replace it with <NEO4J_SHELL>, the Docker store neo4j-<kb>, so every query goes there. Switch?` Yes: step 4.2 replaces the key (`replace_env`). Anything else: reply `kept the current store; nothing was set up` and stop. Never keep a differing `NEO4J_SHELL` silently.
 
 ## 3. Docker and the Neo4j container
@@ -169,7 +169,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 
 ## 4. Write the project settings
 
-1. Write `<kb folder>/neo4j.env` with the file tools, unless its text already equals what this step would write (read both files with the Read tool and compare): the lines of `<scripts>/neo4j.env` exactly (APOC, file import confined to `/import`, the procedure allowlist), followed by the lines a recreate adds (step 3a.7).
+1. Write `<kb folder>/neo4j.env` with the file tools, unless its text already equals what this step would write (read both files with the Read tool and compare): the lines of `<scripts>/neo4j.env` exactly (APOC, file import confined to `/import`, the procedure allowlist), followed by the lines a recreate adds (step 3a.7). For a reused container (step 3a.5), lines of an existing `<kb folder>/neo4j.env` whose keys `<scripts>/neo4j.env` does not set (such as `NEO4J_server_bolt_advertised__address`) are kept after those lines: the running container uses them.
 
 2. Merge (section "Merge into the settings") a fragment with:
    - `env`: `KB_PATH` = `<KB_PATH>`, `NEO4J_SHELL` = `<NEO4J_SHELL>`, `NEO4J_USERNAME` = `neo4j`, `NEO4J_DATABASE` = `neo4j`; for a new container, or a recreate that turns authentication on, also `NEO4J_PASSWORD` = `__KB_PASSWORD__`, a placeholder that step 5.1 replaces.
@@ -270,7 +270,7 @@ A new or recreated container only. A reused container (step 3a.5) skips to step 
 The new `env` and the MCP server reach only new sessions, so each check runs in a fresh session started in `<project>` with `claude -p`. The setup is done only when all three checks pass. A setup that skipped this step (Docker missing in step 1.2, a recreate declined in step 3a.7) reports `index: not ready — <that reason>`.
 
 1. **Load.** The load runs the manifest's export. The export is not pre-allowed, and a headless session cannot ask, so this one session gets an explicit one-time grant for exactly the two commands update-operator runs (its step 6.2):
-   - Fast-forward the clone first, as update-operator's steps 2.3 and 2.4 do: `git -C "<clone>" fetch --quiet origin`, then `git -C "<clone>" merge --ff-only --quiet origin/<default>`. The session then exports the commit the grant names.
+   - Fast-forward the clone first, as update-operator's steps 2.3 and 2.4 do: `git -C "<clone>" fetch --quiet origin`, then `git -C "<clone>" merge --ff-only --quiet origin/<default>`. The fetch fails: continue on the clone's current commit. The merge fails: reply `the read-only clone <clone> cannot fast-forward to origin/<default>: <first error line>; clean it up yourself, then run setup-operator again` and stop. The session then exports the commit the grant names.
    - `<commit>`: `git -C "<clone>" rev-parse HEAD`; `<export command>`: the manifest's `export.cmd` with `{ref}` replaced by `"<commit>"` and `{out}` by `"<import>/kb-export.json.tmp"`, as update-operator renders it.
    - `<export command>` contains `*`, `;`, `&`, `|`, `)`, a backtick or a line break: it cannot be granted exactly. Run the session without the `--allowedTools` part; the export is refused there, and the failure action is `run "fetch: kb <first resource name of the manifest>" once in an interactive session in <project>, then run setup-operator again`.
    - Otherwise, allowing up to 10 minutes:
@@ -299,19 +299,22 @@ The new `env` and the MCP server reach only new sessions, so each check runs in 
 
    Passes when the reply names the MCP server `kb-<kb>` as the source (content-provider's header `explore via MCP kb-<kb>`, or a sentence naming `kb-<kb>` as the MCP server it searched through) and lists at least one hit (`1. <path> — …`). `explore via fixed queries` or no mention of `kb-<kb>`: the session did not reach the MCP server. `No documents match.`: the search found nothing.
 
+Each `claude -p` here may print `Warning: no stdin data received in 3s, proceeding without it` on stderr; it is expected and not part of the reply.
+
 `index: ready` only when checks 1 to 3 pass. Otherwise `index: not ready — <check>: <reason>; <action>`, with the first failed check. The action is the one named above, or else `fix the cause and run setup-operator again`: every step reuses what is already set up, so a second run repeats only what is missing and this step. Relay each reply verbatim in the report: a permission denial or a provider message there is often the only reason shown.
 
 ## 8. Report
 
 ```
 KB <kb> for <project>
-clone: <clone> (<new | reused>) at <first 7 characters of HEAD>
+clone: <clone> (<new | reused | reused, switched from <branch or "detached HEAD"> to <default>>) at <first 7 characters of HEAD>
 KB_PATH: <KB_PATH>
 neo4j: neo4j-<kb> (<new | reused | recreated | not set up: reason>), internal network kb-<kb>, no published ports, data <data>
 mcp: kb-<kb> (<registered | kept | replaced | kept, differs: <difference>; <action> | not set up: reason>)
 settings: <settings> (<added entries, or "unchanged">)
 conflicts: <each conflict line of the merges, or "none">
 to add by hand: <each missing key or rule, or "nothing">
+notes: <each line a step says the report says and that has no line of its own above, or "none">
 index: <ready (<docs> docs at <first 7 characters of <head>>, kb_fulltext ONLINE, explore via MCP kb-<kb>) | not ready — <check>: <reason>; <action>>
 load: <reply of 7.1, verbatim>
 fulltext: <reply of 7.2, verbatim>
