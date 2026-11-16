@@ -11,6 +11,7 @@ Every command below runs unchanged in bash, zsh and PowerShell.
 - Never open, `cat` or search the project's `.claude/settings.local.json` or `.claude/settings.json` to find a value: they hold the Neo4j password. Values come only from the environment, as above.
 - No `<` or `>` redirection, no pipes, no `&&`. Two steps in one line are separated by `;`.
 - Paths are absolute and in double quotes.
+- A folder's entries are listed with `ls "<folder>"`, which runs in bash, zsh and PowerShell; never with the Glob tool, which some sessions do not have. A missing folder makes `ls` fail: it has no entries.
 - Free text (commit messages, titles, pull request bodies) never goes on a command line: write it to a file with the file tools and pass the file. The one exception is a query parameter, which goes on the line only as a `-P` literal (section "Run a query").
 
 ## Denied or failed commands

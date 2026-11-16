@@ -52,7 +52,9 @@ Routes one request to exactly one of three routes, read, write or answer, and re
 
 A read passes resource names through unchanged, also a name the manifest's `resources` does not list: the read skill owns aliases and sources outside the KB, and reports a name it does not know. The write input lists what a requester gives; team writers add the generic writer's further inputs (the contract's section "Routes").
 
-**One agent** means one Agent-tool call, in the foreground, whose prompt holds only: the skill to invoke, its input from the table, and "return the skill's result unchanged". When the Agent tool is not available because this run is itself a seat, invoke the skill inline instead: the current agent is the seat.
+**One agent** means one Agent-tool call whose prompt holds only: the skill to invoke, its input from the table, and "return the skill's result unchanged". Wait for its result before anything else; when the Agent tool runs it in the background, its result arrives when it ends. When the Agent tool is not available because this run is itself a seat, invoke the skill inline instead: the current agent is the seat.
+
+A result that says `needs the KB index (<reason>)` whose reason ends in `run knowledge-base:start-operator`: the KB's Neo4j is stopped. Dispatch `knowledge-base:start-operator` as one agent, with the input "start the KB stack". Its report starts with `KB <kb>: stack started`: dispatch the route again, once, with the same input, and return that result followed by the start report's `mcp:` line. Any other reply from start-operator: return it with the first result. A reason that names `knowledge-base:setup-operator` is returned unchanged: setup asks the developer and runs in their session.
 
 A write seat that returns `needs: <inputs>`: ask the requester for them in one question, then dispatch a fresh seat with the same input plus the answers.
 

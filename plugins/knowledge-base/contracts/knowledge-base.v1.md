@@ -261,7 +261,7 @@ Reads work from the read-only clone and the manifest alone when Docker, Neo4j or
 - Items resolve as in the "Index unavailable" column of section "Resolution".
 - Relationship queries (`related`, `supersede-chain`) and exploration are unavailable.
 - The reader says once that the index is missing; it never fails its caller for that reason.
-- `answer-engine` reports that it needs the KB index, with update-operator's reason, which names `knowledge-base:start-operator` when Neo4j is not reachable and `knowledge-base:setup-operator` when the index is not set up.
+- `answer-engine` reports that it needs the KB index, with update-operator's reason, which names `knowledge-base:start-operator` when Neo4j is not reachable and `knowledge-base:setup-operator` when the index is not set up. On the first, `access-orchestrator` runs start-operator in a seat and dispatches the route once more.
 
 ## Isolation
 

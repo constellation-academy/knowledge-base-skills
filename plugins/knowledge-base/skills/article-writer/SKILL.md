@@ -75,7 +75,7 @@ From here on, the KB root is `<worktree>/<kb_root>` (`<worktree>` itself when `<
 ### 3. Write the files
 
 **create**
-1. `{number}`, when `file_name` has it: the `number` input, else per the contract from the existing file names in `folder` of the worktree (Glob tool).
+1. `{number}`, when `file_name` has it: the `number` input, else per the contract from the existing file names in `folder` of the worktree (`ls`, section "Shell rules" in `../update-operator/runtime.md`).
 2. The target is `<KB root>/<folder><rendered file_name>`. It exists already: return `<path> already exists; use mode update` and stop (after step 5's cleanup). A `companion_changes` path equal to it: `invalid companion_changes: <path> is the document itself`, stop (after step 5's cleanup).
 3. Start from the worktree's `template` file and write the frontmatter settled in step 1, in the frontmatter form.
 4. The body: `content` is a complete document body (a team writer passes one, or it already carries the template's headings): write it below the frontmatter as given. Otherwise fill the template's body from `content`, keeping its headings and order. Write the file with the file tools.
