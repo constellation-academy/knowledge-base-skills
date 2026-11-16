@@ -52,7 +52,11 @@ Routes one request to exactly one of three routes, read, write or answer, and re
 
 A read passes resource names through unchanged, also a name the manifest's `resources` does not list: the read skill owns aliases and sources outside the KB, and reports a name it does not know. The write input lists what a requester gives; team writers add the generic writer's further inputs (the contract's section "Routes").
 
-**One agent** means one Agent-tool call, in the foreground, whose prompt holds only: the skill to invoke, its input from the table, and "return the skill's result unchanged". When the Agent tool is not available because this run is itself a seat, invoke the skill inline instead: the current agent is the seat.
+**One agent** means one Agent-tool call whose prompt holds only: the skill to invoke, its input from the table, and "return the skill's result unchanged". Wait for its result before anything else; when the Agent tool runs it in the background, its result arrives when it ends. When the Agent tool is not available because this run is itself a seat, invoke the skill inline instead: the current agent is the seat.
+
+A result that says `needs the KB index (<reason>)` is returned unchanged, like every result; this skill runs no operator for it. Only the developer's top-level interactive session acts on it, outside this route; a seat, a subagent or a `claude -p` run returns the line and stops. That session acts on it, and not a seat, because start-operator's Docker commands may need the developer's permission and its `mcp:` line describes the session it runs in:
+- The reason names `knowledge-base:start-operator`: invoke it with the Skill tool. Its report starts with `KB <kb>: stack started`: make the request again through this skill, once. Any other reply: show it and stop.
+- Any other reason, `knowledge-base:setup-operator` included: show the line and stop. The developer runs setup-operator, whose settings reach only a new session, and asks again there.
 
 A write seat that returns `needs: <inputs>`: ask the requester for them in one question, then dispatch a fresh seat with the same input plus the answers.
 

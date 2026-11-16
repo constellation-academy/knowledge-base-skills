@@ -130,7 +130,7 @@ The export command writes one JSON object to `{out}`:
 
 ## Queries
 
-- Fixed queries live as `.cypher` files in the plugin. `update-operator` copies them to the query folder, so no command names the plugin's versioned install path.
+- Fixed queries live as `.cypher` files in the plugin. `update-operator` copies them to the query folder, so no command but its folder listing (`ls`) names the plugin's versioned install path; setup's `Read` rule on the plugins folder covers that listing.
 - A query runs as `<NEO4J_SHELL> -d <NEO4J_DATABASE> --format plain -f <query file> -P "<name> => <literal>"`, the `-P` argument in double quotes. The query file is `/import/queries/<name>.cypher` with Docker and the host's query-file path with a local Neo4j. No shell redirection: PowerShell has no `<`.
 - Values reach Cypher only as `-P` parameters, never spliced into query text.
 - A `-P` literal is a single-quoted Cypher string: `\`, `"`, `'`, `$`, the backtick and every character outside printable ASCII become `\uXXXX`; a character above U+FFFF becomes its two UTF-16 surrogate escapes. No character in the argument is then special inside double quotes in bash, zsh or PowerShell, and it holds no double quote for Windows PowerShell 5.1 to drop when it passes the argument to a native program. `null` and numbers are bare.
@@ -213,7 +213,7 @@ A machine reader (a script, not a skill) reads KB text through the index without
 
 ## Freshness
 
-- `update-operator` runs before every read: `git fetch` in the clone, then a fast-forward to `origin/<default_branch>`.
+- `update-operator` runs before every read request (content-provider reuses its report for every later fetch or explore in the same request, unless the index was unavailable): `git fetch` in the clone, then a fast-forward to `origin/<default_branch>`.
 - It compares `KBIndex.sha` with the clone's commit. On a mismatch or an empty store it creates the full-text index if missing, runs the export into the export file, and runs the load.
 - Offline, it continues on the clone's current commit and says how old that commit is.
 - The plugin's skills call `update-operator`, and so does a machine reader that follows the section "Machine reads", before it runs `kb-fetch`. `update-operator` may return one of the "Locate the KB" stop messages instead of the report block below; a machine reader treats any reply without the report's `commit:` and `index:` lines as "not updated" and does not run `kb-fetch`.
@@ -261,7 +261,7 @@ Reads work from the read-only clone and the manifest alone when Docker, Neo4j or
 - Items resolve as in the "Index unavailable" column of section "Resolution".
 - Relationship queries (`related`, `supersede-chain`) and exploration are unavailable.
 - The reader says once that the index is missing; it never fails its caller for that reason.
-- `answer-engine` reports that it needs the KB index, with update-operator's reason, which names `knowledge-base:start-operator` when Neo4j is not reachable and `knowledge-base:setup-operator` when the index is not set up.
+- `answer-engine` reports that it needs the KB index, with update-operator's reason, which names `knowledge-base:start-operator` when Neo4j is not reachable and `knowledge-base:setup-operator` when the index is not set up. An explore through `content-provider` returns the same line. Team skills pass the line on verbatim, never translated. `access-orchestrator` returns it unchanged. On a start-operator reason, the developer's top-level interactive session runs start-operator and, after `stack started`, asks again once; a seat, a subagent or a `claude -p` run does not. On a setup-operator reason, the developer runs setup-operator and asks again in a new session.
 
 ## Isolation
 

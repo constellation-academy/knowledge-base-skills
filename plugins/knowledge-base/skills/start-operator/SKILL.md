@@ -52,7 +52,7 @@ next: <each line below that applies, or "nothing">
 `next:` lines, in this order:
 - Docker was `started`: `if "Start Docker Desktop when you sign in" is off in Docker Desktop's settings, turn it on so the KB comes back after a reboot`;
 - the restart-policy line of step 3.3;
-- a request of the developer hit the unavailable index: `ask again: <that request>`.
+- a request of the developer hit the unavailable index and the session does not ask it again right after this report (section "Run the route" in `../access-orchestrator/SKILL.md`): `ask again: <that request>`.
 
 The index is not checked here: the next KB read runs `knowledge-base:update-operator`, which reloads it when it is behind the clone.
 

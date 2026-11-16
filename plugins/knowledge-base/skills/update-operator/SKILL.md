@@ -31,9 +31,9 @@ Read `NEO4J_SHELL` and `NEO4J_DATABASE`. Either unset: `index: unavailable — n
 
 The plugin's query files are in the `cypher` folder at the plugin root, two folders above this skill's directory (the base directory shown when the skill loads). `<plugin cypher>` is that folder's absolute path.
 
-Compare with the file tools only; no shell command reads or compares these files.
+Compare with the file tools only; no shell command reads or compares these files. Only the listing runs in the shell.
 
-1. List the `.cypher` files of `<plugin cypher>` (Glob tool). For each `<name>.cypher`, read it and `<queries>/<name>.cypher` (Read tool). Every copy exists and its text equals the plugin file's text: the copies are current, go to step 5.
+1. List the `.cypher` files of `<plugin cypher>` (`ls`, section "Shell rules" in `runtime.md`). For each `<name>.cypher`, read it and `<queries>/<name>.cypher` (Read tool). Every copy exists and its text equals the plugin file's text: the copies are current, go to step 5.
 2. Otherwise write each missing or different copy to `<queries>/<name>.cypher` with the file tools, exactly the plugin file's text. Never edit a query file any other way.
 3. Verify each written copy: read it back and compare its text with the plugin file's. Any difference: `index: unavailable — the query file <name>.cypher could not be copied to <queries>`, and go to step 7 without running a query.
 
