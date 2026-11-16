@@ -54,7 +54,7 @@ A read passes resource names through unchanged, also a name the manifest's `reso
 
 **One agent** means one Agent-tool call whose prompt holds only: the skill to invoke, its input from the table, and "return the skill's result unchanged". Wait for its result before anything else; when the Agent tool runs it in the background, its result arrives when it ends. When the Agent tool is not available because this run is itself a seat, invoke the skill inline instead: the current agent is the seat.
 
-A result that says `needs the KB index (<reason>)` whose reason ends in `run knowledge-base:start-operator`: the KB's Neo4j is stopped. Dispatch `knowledge-base:start-operator` as one agent, with the input "start the KB stack". Its report starts with `KB <kb>: stack started`: dispatch the route again, once, with the same input, and return that result followed by the start report's `mcp:` line. Any other reply from start-operator: return it with the first result. A reason that names `knowledge-base:setup-operator` is returned unchanged: setup asks the developer and runs in their session.
+A result that says `needs the KB index (<reason>)` is returned unchanged, like every result. This skill never runs `knowledge-base:start-operator` or `knowledge-base:setup-operator` for it: their Docker commands may ask the developer, and start-operator's `mcp:` line describes the session it runs in. The developer's session runs the operator the reason names, directly with the Skill tool, and then makes the request again through this skill.
 
 A write seat that returns `needs: <inputs>`: ask the requester for them in one question, then dispatch a fresh seat with the same input plus the answers.
 

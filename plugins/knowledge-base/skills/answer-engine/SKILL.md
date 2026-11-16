@@ -19,7 +19,7 @@ If you cannot supply these, use `knowledge-base:access-orchestrator`: it takes t
 
 1. **Material.** Invoke `knowledge-base:content-provider` (Skill tool) with `explore: kb <question>`; it searches with the question's subject words.
    - It returns one of the "Locate the KB" stop messages (`This project has no knowledge base …`, `KB_PATH …`): return that message and stop.
-   - It returns a line starting with `needs the KB index`: answer exactly `This answer needs the KB index (<reason>).`, with the reason from that line, and stop.
+   - It returns a line starting with `needs the KB index`: answer exactly `This answer needs the KB index (<reason>).`, with the reason from that line, in English whatever the answer language, and stop.
 2. **Read.** No hits: nothing is fetched; go to step 3. Otherwise take the top 3 hits by score (all of them when there are fewer), and add up to 2 further hits whose title or excerpt mentions the question's subject. The top hits are read whatever their excerpts say: an excerpt shows only a document's first 200 characters, and the subject often comes later. Fetch them in one call: `fetch: kb <path>, <path>, …`. Then, when a fetched text depends on a document its hit links to (`links out`, `superseded by`), fetch those in one more call, at most 3. Never read KB files any other way.
 3. **Judge.** From the fetched texts only:
    - A document with a `superseded by` link is outdated: answer from its newest successor and mention the old one only as replaced.

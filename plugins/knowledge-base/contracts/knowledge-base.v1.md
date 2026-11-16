@@ -213,7 +213,7 @@ A machine reader (a script, not a skill) reads KB text through the index without
 
 ## Freshness
 
-- `update-operator` runs before every read: `git fetch` in the clone, then a fast-forward to `origin/<default_branch>`.
+- `update-operator` runs before every read request (content-provider reuses its report for a fetch that follows an explore in the same request, unless the index was unavailable): `git fetch` in the clone, then a fast-forward to `origin/<default_branch>`.
 - It compares `KBIndex.sha` with the clone's commit. On a mismatch or an empty store it creates the full-text index if missing, runs the export into the export file, and runs the load.
 - Offline, it continues on the clone's current commit and says how old that commit is.
 - The plugin's skills call `update-operator`, and so does a machine reader that follows the section "Machine reads", before it runs `kb-fetch`. `update-operator` may return one of the "Locate the KB" stop messages instead of the report block below; a machine reader treats any reply without the report's `commit:` and `index:` lines as "not updated" and does not run `kb-fetch`.
@@ -261,7 +261,7 @@ Reads work from the read-only clone and the manifest alone when Docker, Neo4j or
 - Items resolve as in the "Index unavailable" column of section "Resolution".
 - Relationship queries (`related`, `supersede-chain`) and exploration are unavailable.
 - The reader says once that the index is missing; it never fails its caller for that reason.
-- `answer-engine` reports that it needs the KB index, with update-operator's reason, which names `knowledge-base:start-operator` when Neo4j is not reachable and `knowledge-base:setup-operator` when the index is not set up. On the first, `access-orchestrator` runs start-operator in a seat and dispatches the route once more.
+- `answer-engine` reports that it needs the KB index, with update-operator's reason, which names `knowledge-base:start-operator` when Neo4j is not reachable and `knowledge-base:setup-operator` when the index is not set up. An explore through `content-provider` returns the same line. Team skills pass the line on verbatim, never translated. `access-orchestrator` returns it unchanged; the developer's session runs the named operator and asks again.
 
 ## Isolation
 

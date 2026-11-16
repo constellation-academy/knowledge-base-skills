@@ -18,7 +18,7 @@ Mechanics (locating the KB, names such as `<KB root>` and `<queries>`, running a
 
 ## 1. Update first
 
-Invoke `knowledge-base:update-operator` (Skill tool), once per seat: a fetch that follows an explore in the same seat and request reuses that report. Its report says `index: current`, `loaded` or `unavailable — <reason>`.
+Invoke `knowledge-base:update-operator` (Skill tool), once per request: a fetch that follows an explore in the same seat and request reuses that report when it says `current` or `loaded`; after `unavailable` it runs update-operator again. Its report says `index: current`, `loaded` or `unavailable — <reason>`.
 
 - It returned one of the "Locate the KB" stop messages (`This project has no knowledge base …`, `KB_PATH …`) instead of a report: return that message and stop.
 - `current` or `loaded`: the index is available.
