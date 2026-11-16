@@ -45,9 +45,19 @@ Compare with the file tools only; no shell command reads or compares these files
 
 ### 6. Reload the index
 
-1. Run the query `fulltext` with `analyzer` = the manifest's `fulltext_analyzer`, or `standard-no-stop-words` when the manifest has none. It fails: `index: unavailable — <reason>`, go to step 7.
-2. Build the export command from the manifest's `export.cmd`: replace `{ref}` with `"<commit>"` and `{out}` with `"<import>/kb-export.json.tmp"`, each in double quotes. Run it in the clone root as `cd "<clone>"; <export command>`, allowing up to 10 minutes. It exits non-zero: `index: unavailable — the export failed: <first error line>; the previous index is kept`, go to step 7. The load never reads a file the export is still writing: only a finished export becomes `kb-export.json`.
-3. Only after the export exited 0, check with the file tools that `<import>/kb-export.json.tmp` exists. It does not: `index: unavailable — the export wrote no file; the previous index is kept`, go to step 7. Otherwise, on macOS and Linux, first make it readable for Neo4j: the export honours the session's umask and may have written it for its owner only, and the container's `neo4j` user is neither the file's owner nor in its group:
+Only one run at a time reloads the index: take the lock first, with the commands of section "Reload lock" in `runtime.md`.
+
+- Run the take. It succeeds: this run holds the lock; go to step 6.1.
+- The permission system denies it: continue with step 6.1 without the lock; there is nothing to release in step 6.6. This is that command's outcome, not a workaround: a project set up before the rule existed (knowledge-base 1.2.4 or older) does not allow it until setup-operator runs again.
+- It fails: run the age check.
+  - Fresh: `index: unavailable — another run is reloading the index; the previous index is kept`, and go to step 7. Never wait for the lock, and never remove a fresh one.
+  - Stale: run the release, then the take once more. The take succeeds: this run holds the lock; go to step 6.1. The take fails: `index: unavailable — another run is reloading the index; the previous index is kept`, and go to step 7. The release fails or is denied: `index: unavailable — the stale reload lock <import>/reload.lock could not be removed: <first error line, or "denied">; the previous index is kept`, and go to step 7.
+  - Gone: run the take once more. It succeeds: this run holds the lock; go to step 6.1. It fails: `index: unavailable — another run is reloading the index; the previous index is kept`, and go to step 7.
+  - The age check is denied or fails otherwise: `index: unavailable — the reload lock <import>/reload.lock could not be checked: <first error line, or "denied">; the previous index is kept`, and go to step 7.
+
+1. Run the query `fulltext` with `analyzer` = the manifest's `fulltext_analyzer`, or `standard-no-stop-words` when the manifest has none. It fails: `index: unavailable — <reason>`, go to step 6.6.
+2. Build the export command from the manifest's `export.cmd`: replace `{ref}` with `"<commit>"` and `{out}` with `"<import>/kb-export.json.tmp"`, each in double quotes. Run it in the clone root as `cd "<clone>"; <export command>`, allowing up to 10 minutes. It exits non-zero: `index: unavailable — the export failed: <first error line>; the previous index is kept`, go to step 6.6. The load never reads a file the export is still writing: only a finished export becomes `kb-export.json`.
+3. Only after the export exited 0, check with the file tools that `<import>/kb-export.json.tmp` exists. It does not: `index: unavailable — the export wrote no file; the previous index is kept`, go to step 6.6. Otherwise, on macOS and Linux, first make it readable for Neo4j: the export honours the session's umask and may have written it for its owner only, and the container's `neo4j` user is neither the file's owner nor in its group:
 
    ```
    chmod 644 "<import>/kb-export.json.tmp"
@@ -59,9 +69,13 @@ Compare with the file tools only; no shell command reads or compares these files
    rm "<import>/kb-export.json"; mv "<import>/kb-export.json.tmp" "<import>/kb-export.json"
    ```
 
-   The `rm` reports an error when no previous export exists; ignore it. The file tools still find `<import>/kb-export.json.tmp` afterwards: `index: unavailable — the export could not be moved into place; the previous index is kept`, go to step 7.
-4. Run the query `load` with `kb`. It fails: `index: unavailable — the load was refused: <reason>; the previous index is kept`, go to step 7. When step 3 skipped the `chmod` and the reason contains `Cannot open file`, the reason is instead `the export is not readable for Neo4j and chmod was not allowed; run knowledge-base:setup-operator once to add its permission`.
+   The `rm` reports an error when no previous export exists; ignore it. Then list `<import>` (`ls`, section "Shell rules" in `runtime.md`):
+   - `kb-export.json.tmp` is still listed: `index: unavailable — the export could not be moved into place; the previous index is kept`, go to step 6.6.
+   - Neither `kb-export.json.tmp` nor `kb-export.json` is listed: the file was removed between the check above and the `mv`, which reports that it does not exist. `index: unavailable — the export file disappeared before the move; the previous index is kept`, go to step 6.6.
+   - Only `kb-export.json` is listed: the move succeeded; go to step 6.4.
+4. Run the query `load` with `kb`. It fails: `index: unavailable — the load was refused: <reason>; the previous index is kept`, go to step 6.6. When step 3 skipped the `chmod` and the reason contains `Cannot open file`, the reason is instead `the export is not readable for Neo4j and chmod was not allowed; run knowledge-base:setup-operator once to add its permission`.
 5. The row's `sha` must equal `<commit>`; otherwise `index: unavailable — the export stamped <sha>, not <commit>`. When it matches: `index: loaded`, `docs` from the row.
+6. Release the lock, on every outcome of steps 6.1 to 6.5, when this run holds it: run the release of section "Reload lock" in `runtime.md`. It fails or is denied: the report stays as it is; the lock goes stale after 10 minutes and the next run removes it. Then go to step 7.
 
 ### 7. Report
 
@@ -88,3 +102,8 @@ docs: <docs, or "-" when the index is unavailable>
 | Stopping, or trying another command, when the `chmod` of step 6.3 is denied | Continue with the move; the load decides, and its failure names the one-time setup-operator run |
 | Stopping the caller because Neo4j is down | Report `index: unavailable` with the reason; the caller reads the files |
 | Retrying a refused load or clearing the store to make it pass | Report the refusal; the store and the previous index stay as they are |
+| Reloading without taking the reload lock, or removing a fresh lock | Take the lock before step 6.1; a fresh lock means another run reloads now: report `another run is reloading the index` |
+| Waiting or polling until another run releases the lock | Report `index: unavailable` at once; the caller reads the files, and the next run finds the index loaded |
+| Going straight to step 7 from steps 6.1 to 6.5 | Every outcome goes through step 6.6, which releases the lock this run holds |
+| Writing a file into `<import>/reload.lock` | Keep it empty: its modification time is its age, and `rmdir` removes only an empty folder |
+| Taking a missing `kb-export.json.tmp` after the move for a success | List `<import>`: only `kb-export.json` listed is a success; neither listed means the file disappeared before the move |

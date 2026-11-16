@@ -20,6 +20,7 @@ This contract binds every knowledge base (KB) that uses the `knowledge-base` plu
 | Import folder | `~/.kb/<kb id>/import`, mounted at `/import` in the container |
 | Query files | `~/.kb/<kb id>/import/queries/<name>.cypher` |
 | Export file | `~/.kb/<kb id>/import/kb-export.json` |
+| Reload lock | `~/.kb/<kb id>/import/reload.lock`, an empty folder that exists while one run reloads the index |
 | Neo4j settings | `~/.kb/<kb id>/neo4j.env`: APOC, file import, the import folder and the procedure allowlist, passed with `--env-file`; no credentials |
 | Writer worktrees | `~/.kb/<kb id>/worktrees/<name>`, with the writer's message files next to them as `<name>.<file>` |
 | Setup staging | `~/.kb/.incoming` (a clone before its KB id is known) and `~/.kb/setup-fragment.json` (settings to merge); both are removed by the setup |
@@ -215,6 +216,7 @@ A machine reader (a script, not a skill) reads KB text through the index without
 
 - `update-operator` runs before every read request (content-provider reuses its report for every later fetch or explore in the same request, unless the index was unavailable): `git fetch` in the clone, then a fast-forward to `origin/<default_branch>`.
 - It compares `KBIndex.sha` with the clone's commit. On a mismatch or an empty store it creates the full-text index if missing, runs the export into the export file, and runs the load.
+- Only one run per KB reloads at a time: it holds the reload lock from before the full-text index until after the load. A run that finds a lock taken 10 minutes ago or less does not reload and reports `index: unavailable`, keeping the previous index; a lock taken more than 10 minutes ago, the export's time limit, is stale and is replaced.
 - Offline, it continues on the clone's current commit and says how old that commit is.
 - The plugin's skills call `update-operator`, and so does a machine reader that follows the section "Machine reads", before it runs `kb-fetch`. `update-operator` may return one of the "Locate the KB" stop messages instead of the report block below; a machine reader treats any reply without the report's `commit:` and `index:` lines as "not updated" and does not run `kb-fetch`.
 - Its report is part of this contract; callers parse it, so its four lines never change within a major. `update-operator` returns exactly:

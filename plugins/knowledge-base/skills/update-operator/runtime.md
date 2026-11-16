@@ -4,7 +4,7 @@ How the `knowledge-base` skills locate the project's KB and run the plugin's que
 
 ## Shell rules
 
-Every command below runs unchanged in bash, zsh and PowerShell.
+Every command below runs unchanged in bash, zsh and PowerShell, except the age check in "Reload lock".
 
 - An environment value is read first, with its own command, and then written into the next command as literal text: `printenv <KEY>` in bash or zsh, `[Environment]::GetEnvironmentVariable('<KEY>')` in PowerShell. Empty output means unset. A command line never contains `$<KEY>`, `$env:<KEY>` or `%<KEY>%`.
 - Read only `KB_PATH`, `NEO4J_SHELL` and `NEO4J_DATABASE`. `NEO4J_USERNAME` and `NEO4J_PASSWORD` are never read, printed or written into a command; `NEO4J_SHELL` passes them on by name.
@@ -81,3 +81,39 @@ Parameters per query:
 ### Failures
 
 A query fails when it cannot start or exits non-zero. Its reason is the first line of its error output. A reason that starts with `refusing` comes from the store guard: the store holds another KB or an unstamped graph.
+
+## Reload lock
+
+Runs on one machine share `<import>` and the fixed names `kb-export.json.tmp` and `kb-export.json`, so only one run at a time may reload the index. The lock is the folder `<import>/reload.lock`. It stays empty, so its modification time is the time it was taken; nothing is ever written into it.
+
+Take the lock, in one command that runs unchanged in bash, zsh and PowerShell:
+
+```
+mkdir "<import>/reload.lock"
+```
+
+It succeeds only when the folder did not exist; when it exists, it fails with an error saying so. In bash, zsh, and PowerShell on macOS and Linux (where `mkdir` is the system's own command), creating the folder is atomic. In PowerShell on Windows, `mkdir` checks for the folder and then creates it, so two runs that take the lock in the same instant can both succeed; the lock does not guard against that.
+
+Release the lock, unchanged in all three shells:
+
+```
+rmdir "<import>/reload.lock"
+```
+
+`rmdir` removes only an empty folder, the one form that runs unchanged in all three shells.
+
+Check the lock's age. This is the one lock command that differs per shell, an exception to "Shell rules". In bash and zsh:
+
+```
+find "<import>/reload.lock" -maxdepth 0 -mmin +10
+```
+
+It prints the lock's path: the lock is stale. It prints nothing: the lock is fresh. In PowerShell:
+
+```
+(Get-Item "<import>/reload.lock").LastWriteTime.AddMinutes(10) -lt (Get-Date)
+```
+
+It prints `True`: stale. `False`: fresh. In both shells, an error that says the path does not exist, in whatever language, means the lock is gone: its holder released it in the meantime. Any other failure, or a denial, follows the skill step that runs the check.
+
+Stale means the lock was taken more than 10 minutes ago, the export's time limit. `find` counts whole minutes: on macOS it calls a lock stale after more than 10 minutes, GNU `find` (Linux, Git Bash) from 11 minutes on. PowerShell compares to the second.

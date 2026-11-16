@@ -184,7 +184,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 
 ### Allow rules
 
-Each rule is written with the paths exactly as the skills write them in commands. On Windows, add every `Bash(…)` rule once more as `PowerShell(…)` with the same text, and replace the three `printenv` rules by `PowerShell([Environment]::GetEnvironmentVariable('KB_PATH'))` and the same for `NEO4J_SHELL` and `NEO4J_DATABASE`.
+Each rule is written with the paths exactly as the skills write them in commands. On Windows, add every `Bash(…)` rule once more as `PowerShell(…)` with the same text, replace the three `printenv` rules by `PowerShell([Environment]::GetEnvironmentVariable('KB_PATH'))` and the same for `NEO4J_SHELL` and `NEO4J_DATABASE`, and replace the `find` rule's `PowerShell(…)` copy by `PowerShell((Get-Item "<import>/reload.lock").LastWriteTime.AddMinutes(10) -lt (Get-Date))`, the lock's age check in PowerShell (`../update-operator/runtime.md`, section "Reload lock").
 
 ```
 Bash(printenv KB_PATH)
@@ -201,6 +201,9 @@ Bash(<NEO4J_SHELL> -d <database> --format plain -f /import/queries/*)
 Bash(chmod 644 "<import>/kb-export.json.tmp")
 Bash(rm "<import>/kb-export.json")
 Bash(mv "<import>/kb-export.json.tmp" "<import>/kb-export.json")
+Bash(mkdir "<import>/reload.lock")
+Bash(rmdir "<import>/reload.lock")
+Bash(find "<import>/reload.lock" -maxdepth 0 -mmin +10)
 Read(//<plugins folder>/**)
 Read(//<kb folder>/**)
 Edit(~/.kb/<kb>/import/queries/*.cypher)

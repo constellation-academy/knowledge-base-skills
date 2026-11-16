@@ -91,3 +91,28 @@ describe("update-operator publish step", () => {
     for (const c of commands) expect(setup).toContain(`Bash(${c})`);
   });
 });
+
+describe("update-operator reload lock", () => {
+  const reload = updater.slice(updater.indexOf("\n### 6. Reload the index"), updater.indexOf("\n### 7. Report"));
+  const beforeFirst = reload.slice(0, reload.indexOf("\n1. Run the query `fulltext`"));
+
+  test("takes the lock before step 6.1, with the commands of runtime.md", () => {
+    expect(beforeFirst).toContain('section "Reload lock"');
+    expect(beforeFirst).toContain("`index: unavailable — another run is reloading the index; the previous index is kept`");
+  });
+
+  test("every outcome of steps 6.1 to 6.5 releases the lock before the report", () => {
+    const steps = reload.slice(reload.indexOf("\n1. Run the query `fulltext`"), reload.indexOf("\n6. "));
+    expect(steps).not.toContain("go to step 7");
+    expect(reload).toMatch(/\n6\. [^\n]*release/i);
+  });
+
+  test("a temp export gone at the move has its own outcome", () => {
+    expect(reload).toContain("`index: unavailable — the export file disappeared before the move; the previous index is kept`");
+    expect(reload).not.toContain("The file tools still find `<import>/kb-export.json.tmp` afterwards");
+  });
+
+  test("the contract names the lock in the local layout", () => {
+    expect(section(contract, "## Local layout")).toContain("`~/.kb/<kb id>/import/reload.lock`");
+  });
+});
