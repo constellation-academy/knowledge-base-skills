@@ -178,7 +178,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
    - `replace_env`: `["NEO4J_SHELL"]` when the developer confirmed the store switch of step 2.7; otherwise leave it out. The script replaces only the listed keys among `KB_PATH`, `NEO4J_SHELL`, `NEO4J_USERNAME` and `NEO4J_DATABASE`, and reports `replaced env <key>: was …, now …`.
    - `permissions.allow`: the rules of "Allow rules" below, except the `<NEO4J_SHELL>` query rule.
    - `permissions.deny`: `Read(/.claude/settings.local.json)`.
-   - `remove.allow`: the reload lock rules of "Allow rules" below.
+   - `remove.allow`: the rules that no skill runs any more, listed in "Allow rules" below.
 
    Its `<password state>` is the state from here on. `<database>`: the current value from `conflict env NEO4J_DATABASE: current <value>, …` when the merge printed that line; otherwise `neo4j`.
 3. Merge a second fragment with only `permissions.allow` = the `<NEO4J_SHELL>` query rule, rendered with `<database>`. It now matches the database every query uses.
@@ -216,10 +216,15 @@ mcp__kb-<kb>__*
 - `//<plugins folder>/**` and `//<kb folder>/**` are absolute paths without their leading `/`, after `//`; on Windows in the form `//c/Users/…` with forward slashes. The KB folder is readable only; it is not an additional working directory, so no permission mode, `acceptEdits` included, edits anything under it beyond the `Edit` rules above.
 - Every `Bash` rule is an exact command except the `<NEO4J_SHELL>` rule. The `?` of the `chmod` rule are text to the permission system, which treats only `*` as a wildcard: with Claude Code 2.1.326 the rule allowed the command in a session that could not prompt, and denied the same command with one more file argument. The shell expands them to the export file of every run in `<import>`, and the `chmod` gives each the mode its run sets anyway.
 - The `Edit` rules admit only text no program runs as code: `.cypher` files in the query folder, which only `cypher-shell` reads; Markdown documents in a worktree; and the writer's message files next to the worktrees. A script, `package.json`, a `.git` file or a companion change of another type in a worktree prompts, with its content shown, before it is written. So a later approved command, such as `pr.pre_commit`, runs only code the developer has seen.
-- A setup before knowledge-base 1.2.5 added `Bash(chmod 644 "<import>/kb-export.json.tmp")`, `Bash(rm "<import>/kb-export.json")` and `Bash(mv "<import>/kb-export.json.tmp" "<import>/kb-export.json")`. No skill runs them any more. This setup does not remove them; each names one fixed path, and the developer may delete them from `<settings>` by hand.
-- A setup from a development build of knowledge-base 1.2.5 added rules for a reload lock that no skill takes any more. The merge of step 4.2 removes them by their exact text, which identifies them; a rule with the same text that the developer added by hand goes too:
+- Earlier setups added rules that no skill runs any more. The merge of step 4.2 removes them by their exact text, which identifies them; a rule with the same text that the developer added by hand goes too. No command of this version matches any of them. The rules that no skill runs any more:
 
   ```
+  Bash(chmod 644 "<import>/kb-export.json.tmp")
+  Bash(rm "<import>/kb-export.json")
+  Bash(mv "<import>/kb-export.json.tmp" "<import>/kb-export.json")
+  PowerShell(chmod 644 "<import>/kb-export.json.tmp")
+  PowerShell(rm "<import>/kb-export.json")
+  PowerShell(mv "<import>/kb-export.json.tmp" "<import>/kb-export.json")
   Bash(mkdir "<import>/reload.lock")
   Bash(rmdir "<import>/reload.lock")
   PowerShell(mkdir "<import>/reload.lock")
@@ -228,7 +233,7 @@ mcp__kb-<kb>__*
   Edit(~/.kb/<kb>/import/reload.lock)
   ```
 
-  An empty `<import>/reload.lock` folder that such a build left stays; it does no harm.
+  The first six come from setups of knowledge-base 1.2.4 and earlier, their `PowerShell(…)` forms from those on Windows; the rest from a development build of 1.2.5, which took a reload lock. An empty `<import>/reload.lock` folder that such a build left stays; it does no harm.
 - Accepted risk, the query wildcard: the trailing `*` of the `<NEO4J_SHELL>` rule admits any further `cypher-shell` arguments. Together with the `Edit` rule on the query folder, a session can write and run any Cypher against this KB's own store, which holds only the rebuildable index. Nothing leaves the machine that way: the store has no network route outside Docker, so `LOAD CSV` and APOC loads from a URL fail, APOC outside the allowlist is not loaded, file loads stay in `/import`, and an inserted `-a <host>` reaches only containers on `kb-<kb>`.
 - Not pre-allowed, so these prompt, unless the developer's own permission mode, rules or hooks allow them:
   - the export command, once per reindex, with its `cd` into the clone;

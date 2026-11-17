@@ -198,6 +198,19 @@ describe("update-operator reload", () => {
     ]) expect(setup).toContain(r);
   });
 
+  test("setup removes the 1.2.4 rules no 1.2.5 command uses, in their Bash and PowerShell forms", () => {
+    const legacy = ['chmod 644 "<import>/kb-export.json.tmp"', 'rm "<import>/kb-export.json"', 'mv "<import>/kb-export.json.tmp" "<import>/kb-export.json"'];
+    const list = setup.slice(setup.indexOf("rules that no skill runs any more"), setup.indexOf("- Accepted risk, the query wildcard"));
+    for (const c of legacy) {
+      expect(list).toContain(`Bash(${c})`);
+      expect(list).toContain(`PowerShell(${c})`);
+      expect(ruleBlock).not.toContain(c);
+    }
+    expect(setup).not.toMatch(/does not remove them|cannot remove them/);
+    expect(readme).not.toMatch(/does not remove them|cannot remove them/);
+    expect(readme).toMatch(/the setup removes them/);
+  });
+
   test("setup grants its load session only the export, and the run's file removal prompts", () => {
     const grant = setup.slice(setup.indexOf("1. **Load.**"), setup.indexOf("2. **Full-text index"));
     expect(grant).toContain("'Bash(<export command>)'");
