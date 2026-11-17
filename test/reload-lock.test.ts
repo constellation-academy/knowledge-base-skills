@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -21,11 +21,15 @@ const lockCommands = () => {
   const pick = (exact: string) => blocks.find((b) => b === exact) ?? "";
   const pickPrefix = (prefix: string) => blocks.find((b) => b.startsWith(prefix)) ?? "";
   return {
+    idSh: pick("mktemp -u XXXXXXXXXXXX"),
+    idPs: pick("[guid]::NewGuid().ToString('N').Substring(0,12)"),
     take: pick('mkdir "<import>/reload.lock"'),
     takeOwner: pick('mkdir "<import>/reload.lock/<run id>"'),
     list: pick('ls "<import>/reload.lock"'),
-    ageSh: pickPrefix("find "),
-    agePs: pickPrefix("(Get-Item "),
+    ageSh: pickPrefix('find "<import>/reload.lock/<old>"'),
+    agePs: pickPrefix('(Get-Item "<import>/reload.lock/<old>")'),
+    ageLockSh: pickPrefix('find "<import>/reload.lock" '),
+    ageLockPs: pickPrefix('(Get-Item "<import>/reload.lock")'),
     breakOwner: pick('rmdir "<import>/reload.lock/<old>"'),
     releaseOwner: pick('rmdir "<import>/reload.lock/<run id>"'),
     removeLock: pick('rmdir "<import>/reload.lock"'),
@@ -70,13 +74,17 @@ afterEach(() => {
 if (!PWSH) console.warn("PowerShell reload-lock runs skipped: pwsh is not on PATH");
 
 describe("runtime.md names the reload lock commands", () => {
-  test("take, list, age check per shell, break and release", () => {
+  test("run id, take, list, age checks per shell, break and release", () => {
     expect(lockCommands()).toEqual({
+      idSh: "mktemp -u XXXXXXXXXXXX",
+      idPs: "[guid]::NewGuid().ToString('N').Substring(0,12)",
       take: 'mkdir "<import>/reload.lock"',
       takeOwner: 'mkdir "<import>/reload.lock/<run id>"',
       list: 'ls "<import>/reload.lock"',
       ageSh: 'find "<import>/reload.lock/<old>" -maxdepth 0 -mmin +30',
       agePs: '(Get-Item "<import>/reload.lock/<old>").LastWriteTime.AddMinutes(30) -lt (Get-Date)',
+      ageLockSh: 'find "<import>/reload.lock" -maxdepth 0 -mmin +30',
+      ageLockPs: '(Get-Item "<import>/reload.lock").LastWriteTime.AddMinutes(30) -lt (Get-Date)',
       breakOwner: 'rmdir "<import>/reload.lock/<old>"',
       releaseOwner: 'rmdir "<import>/reload.lock/<run id>"',
       removeLock: 'rmdir "<import>/reload.lock"',
@@ -93,12 +101,11 @@ describe("runtime.md names the reload lock commands", () => {
 
   test("setup-operator pre-allows them, so a headless session is not stopped", async () => {
     const setup = await Bun.file(join(PLUGIN, "skills/setup-operator/SKILL.md")).text();
-    const { take, takeOwner, ageSh, agePs, breakOwner, removeLock } = lockCommands();
+    const { idSh, idPs, take, takeOwner, ageSh, agePs, ageLockSh, ageLockPs, breakOwner, removeLock } = lockCommands();
     const wild = (c: string) => c.replace("<run id>", "*").replace("<old>", "*");
-    for (const c of [take, takeOwner, ageSh, breakOwner, removeLock]) expect(setup).toContain(`Bash(${wild(c)})`);
-    expect(setup).toContain(`PowerShell(${wild(agePs)})`);
-    expect(setup).not.toContain('Bash(find "<import>/reload.lock" -maxdepth 0');
-    expect(setup).toContain("Read(//<kb folder>/**)");
+    for (const c of [idSh, take, takeOwner, ageSh, ageLockSh, breakOwner, removeLock]) expect(setup).toContain(`Bash(${wild(c)})`);
+    for (const c of [idPs, agePs, ageLockPs]) expect(setup).toContain(`PowerShell(${wild(c)})`);
+    expect(setup).toContain("https://code.claude.com/docs/en/permissions#read-only-commands");
   });
 });
 
@@ -106,7 +113,14 @@ for (const shell of ["bash", "zsh", ...(PWSH ? ["pwsh"] : [])]) {
   describe(`reload lock in ${shell}`, () => {
     const c = lockCommands();
     const ageCmd = shell === "pwsh" ? c.agePs : c.ageSh;
+    const ageLockCmd = shell === "pwsh" ? c.ageLockPs : c.ageLockSh;
+    const idCmd = shell === "pwsh" ? c.idPs : c.idSh;
     const stale = (out: string, old: string) => (shell === "pwsh" ? out === "True" : out === join(LOCK(), old));
+    const lockStale = (out: string) => (shell === "pwsh" ? out === "True" : out === LOCK());
+    const ageLock = (seconds: number) => {
+      const t = Date.now() / 1000 - seconds;
+      utimesSync(LOCK(), t, t);
+    };
     const fresh = (out: string) => (shell === "pwsh" ? out === "False" : out === "");
     const listed = (out: string, name: string) => out.split(/\s+/).includes(name);
 
@@ -115,8 +129,14 @@ for (const shell of ["bash", "zsh", ...(PWSH ? ["pwsh"] : [])]) {
       return run(shell, c.takeOwner, { runId }).code === 0;
     };
 
+    const missing = (err: string) => /No such file or directory|Cannot find path|does not exist/i.test(err);
+
     const release = (runId: string) => {
-      if (run(shell, c.releaseOwner, { runId }).code !== 0) return "taken over";
+      const r = run(shell, c.releaseOwner, { runId });
+      if (r.code !== 0) {
+        if (missing(r.err)) return "taken over";
+        throw new Error(`release failed otherwise: ${r.err}`);
+      }
       run(shell, c.removeLock);
       return "released";
     };
@@ -218,6 +238,63 @@ for (const shell of ["bash", "zsh", ...(PWSH ? ["pwsh"] : [])]) {
 
       expect(release("aaaaaaaaaaaa")).toBe("taken over");
       expect(owners()).toEqual(["bbbbbbbbbbbb"]);
+    });
+
+    test("the run id command prints 12 letters or digits, a new one each time, and creates nothing", () => {
+      const a = run(shell, idCmd);
+      const b = run(shell, idCmd);
+      expect(a.code).toBe(0);
+      expect(a.out).toMatch(/^[A-Za-z0-9]{12}$/);
+      expect(b.out).toMatch(/^[A-Za-z0-9]{12}$/);
+      expect(a.out).not.toBe(b.out);
+      expect(readdirSync(IMPORT)).toEqual([]);
+    });
+
+    test("the take's error says the lock exists; a missing import folder gives another error", () => {
+      mkdirSync(LOCK());
+      const exists = run(shell, c.take);
+      expect(exists.code).not.toBe(0);
+      expect(exists.err).toMatch(/exists/i);
+      rmSync(IMPORT, { recursive: true, force: true });
+      const noImport = run(shell, c.take);
+      expect(noImport.code).not.toBe(0);
+      expect(noImport.err).not.toMatch(/exists/i);
+      mkdirSync(IMPORT);
+    });
+
+    test("an ownerless lock is aged by the lock folder, and creating or removing an owner folder makes it fresh", () => {
+      mkdirSync(LOCK());
+      let r = run(shell, ageLockCmd);
+      expect(r.code).toBe(0);
+      expect(lockStale(r.out)).toBe(false);
+      ageLock(32 * 60);
+      expect(lockStale(run(shell, ageLockCmd).out)).toBe(true);
+      expect(run(shell, c.takeOwner, { runId: "aaaaaaaaaaaa" }).code).toBe(0);
+      expect(lockStale(run(shell, ageLockCmd).out)).toBe(false);
+      ageLock(32 * 60);
+      expect(release("aaaaaaaaaaaa")).toBe("released");
+      mkdirSync(LOCK());
+      mkdirSync(join(LOCK(), "bbbbbbbbbbbb"));
+      ageLock(32 * 60);
+      expect(run(shell, c.releaseOwner, { runId: "bbbbbbbbbbbb" }).code).toBe(0);
+      expect(lockStale(run(shell, ageLockCmd).out)).toBe(false);
+    });
+
+    test("a release whose owner folder is gone reports it as missing, not as another failure", () => {
+      mkdirSync(LOCK());
+      expect(release("aaaaaaaaaaaa")).toBe("taken over");
+    });
+
+    test("a hidden entry is not listed but keeps the lock from being removed", () => {
+      mkdirSync(LOCK());
+      writeFileSync(join(LOCK(), ".DS_Store"), "");
+      const l = run(shell, c.list);
+      expect(l.code).toBe(0);
+      expect(l.out).toBe("");
+      const r = run(shell, c.removeLock);
+      expect(r.code).not.toBe(0);
+      expect(missing(r.err)).toBe(false);
+      expect(existsSync(LOCK())).toBe(true);
     });
   });
 }

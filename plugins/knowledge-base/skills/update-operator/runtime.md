@@ -4,7 +4,7 @@ How the `knowledge-base` skills locate the project's KB and run the plugin's que
 
 ## Shell rules
 
-Every command below runs unchanged in bash, zsh and PowerShell, except the age check in "Reload lock".
+Every command below runs unchanged in bash, zsh and PowerShell, except the run id command and the age checks in "Reload lock".
 
 - An environment value is read first, with its own command, and then written into the next command as literal text: `printenv <KEY>` in bash or zsh, `[Environment]::GetEnvironmentVariable('<KEY>')` in PowerShell. Empty output means unset. A command line never contains `$<KEY>`, `$env:<KEY>` or `%<KEY>%`.
 - Read only `KB_PATH`, `NEO4J_SHELL` and `NEO4J_DATABASE`. `NEO4J_USERNAME` and `NEO4J_PASSWORD` are never read, printed or written into a command; `NEO4J_SHELL` passes them on by name.
@@ -84,13 +84,25 @@ A query fails when it cannot start or exits non-zero. Its reason is the first li
 
 ## Reload lock
 
-Runs on one machine share `<import>` and the fixed names `kb-export.json.tmp` and `kb-export.json`, so only one run at a time may reload the index. The lock is the folder `<import>/reload.lock`. The run that holds it is named by the one folder inside it, its owner folder `<import>/reload.lock/<run id>`.
+Runs on one machine share `<import>` and the export file `kb-export.json`, so only one run at a time may reload the index. The lock is the folder `<import>/reload.lock`. The run that holds it is named by the one folder inside it, its owner folder `<import>/reload.lock/<run id>`. Each run writes its export to its own temp file, `<import>/kb-export.<run id>.json.tmp`.
 
-- `<run id>`: 12 random hexadecimal characters (`0` to `9`, `a` to `f`) that a run chooses once, before its first lock command, and uses for every lock command of that run.
-- `<old>`: the name of an owner folder this run found in the lock, as the listing prints it.
-- Nothing is ever written into either folder. The owner folder stays empty, so its modification time is the time its run took the lock: the lock's age is the owner folder's age.
+- `<run id>`: the output of the run id command below, drawn once per run before its first lock command, and again only where update-operator says so. Never choose, type or change an id yourself: two runs that make one up can make up the same one.
+- `<old>`, `<name>`: the name of an owner folder this run found in the lock, as the listing prints it.
+- Nothing is ever written into either folder. A folder's modification time changes when an entry is created or removed in it: the owner folder's age is the time since its run took the lock, and the lock folder's age is the time since an owner folder was last created or removed in it.
 
-Every lock command runs unchanged in bash, zsh and PowerShell, except the age check.
+Every lock command runs unchanged in bash, zsh and PowerShell, except the run id command and the two age checks.
+
+Draw the run id. In bash and zsh it prints 12 random letters and digits and creates nothing:
+
+```
+mktemp -u XXXXXXXXXXXX
+```
+
+In PowerShell it prints 12 random hexadecimal characters:
+
+```
+[guid]::NewGuid().ToString('N').Substring(0,12)
+```
 
 Take the lock with two commands. Run the second only after the first succeeded:
 
@@ -102,17 +114,17 @@ mkdir "<import>/reload.lock"
 mkdir "<import>/reload.lock/<run id>"
 ```
 
-`mkdir` succeeds only when the folder did not exist; when it exists, it fails with an error saying so. In bash, zsh, and PowerShell on macOS and Linux (where `mkdir` is the system's own command), creating the folder is atomic. In PowerShell on Windows, `mkdir` checks for the folder and then creates it, so two runs that take the lock in the same instant can both succeed; the lock does not guard against that.
+`mkdir` succeeds only when the folder did not exist. When it exists, `mkdir` fails with an error that says it exists, in whatever language (in English `File exists` or `already exists`). Any other error, such as `No such file or directory` for a missing `<import>` or `Permission denied`, means the folder could not be created. In bash, zsh, and PowerShell on macOS and Linux (where `mkdir` is the system's own command), creating the folder is atomic. In PowerShell on Windows, `mkdir` checks for the folder and then creates it, so two runs that take the lock in the same instant can both succeed: the check after the take, in update-operator, then sends both away. Whether it also creates a missing `<import>` there is unverified.
 
-List the lock's owner folder:
+List the lock's owner folders:
 
 ```
 ls "<import>/reload.lock"
 ```
 
-It prints nothing: the lock has no owner folder yet, because another run is between its two take commands. It prints one name: that is `<old>`, or this run's own `<run id>`. An error that says the path does not exist, in whatever language: the lock is gone.
+It prints nothing: the lock has no owner folder. It prints one name or more: the owner folders. An error that says the path does not exist, in whatever language: the lock is gone. In bash and zsh `ls` hides names that start with `.`: a hidden entry, such as the `.DS_Store` file macOS Finder writes, is not listed, but it keeps `rmdir` from removing the folder, which then fails with `Directory not empty`. `ls -A` would show it, but it does not run in PowerShell, where `-A` is an ambiguous parameter of `Get-ChildItem`. In PowerShell on Windows, `ls` is `Get-ChildItem` and prints a table: the names are its `Name` column (seen with PowerShell 7 on macOS; unverified on Windows).
 
-Check the age of the owner folder `<old>`. This is the one lock command that differs per shell, an exception to "Shell rules". In bash and zsh:
+Check the age of the owner folder `<old>`. In bash and zsh:
 
 ```
 find "<import>/reload.lock/<old>" -maxdepth 0 -mmin +30
@@ -124,9 +136,23 @@ It prints the owner folder's path: the lock is stale. It prints nothing: the loc
 (Get-Item "<import>/reload.lock/<old>").LastWriteTime.AddMinutes(30) -lt (Get-Date)
 ```
 
-It prints `True`: stale. `False`: fresh. In both shells, an error that says the path does not exist, in whatever language, means the owner folder is gone: its run released the lock, or another run broke it, in the meantime. Any other failure, or a denial, follows the skill step that runs the check.
+It prints `True`: stale. `False`: fresh.
 
-Break a stale lock with two commands. Run the second only after the first succeeded:
+Check the age of the lock folder itself, for a lock without an owner folder or with more than one. In bash and zsh:
+
+```
+find "<import>/reload.lock" -maxdepth 0 -mmin +30
+```
+
+It prints the lock's path: stale. It prints nothing: fresh. In PowerShell:
+
+```
+(Get-Item "<import>/reload.lock").LastWriteTime.AddMinutes(30) -lt (Get-Date)
+```
+
+It prints `True`: stale. `False`: fresh. For both age checks, in every shell, an error that says the path does not exist, in whatever language, means the folder is gone: its run released the lock, or another run broke it, in the meantime. Any other failure, or a denial, follows the skill step that runs the check.
+
+Break a stale lock: remove each owner folder, then the lock. Run each command only after the one before it succeeded:
 
 ```
 rmdir "<import>/reload.lock/<old>"
@@ -136,7 +162,7 @@ rmdir "<import>/reload.lock/<old>"
 rmdir "<import>/reload.lock"
 ```
 
-Only one run can remove `<old>`: when two runs break the same stale lock, the later `rmdir` of `<old>` fails with an error that says the folder does not exist, and that run breaks nothing.
+Only one run can remove an owner folder: when two runs break the same stale lock, the later `rmdir` of that folder fails with an error that says the folder does not exist. A lock without an owner folder has no such guard: two runs can remove it one after the other, the second removing the lock the first has just taken again. The check after the take, in update-operator, finds that.
 
 Release the lock with two commands. Run the second only after the first succeeded:
 
@@ -148,6 +174,6 @@ rmdir "<import>/reload.lock/<run id>"
 rmdir "<import>/reload.lock"
 ```
 
-The first fails with an error that says the folder does not exist when another run broke this run's lock and may hold its own: the run then touches nothing else. `rmdir` removes only an empty folder, the one form that runs unchanged in all three shells, so it never removes another run's owner folder with the lock.
+The first fails with an error that says the folder does not exist when another run broke this run's lock and may hold its own: the run then touches nothing else. `rmdir` removes only an empty folder in bash and zsh, so it never removes another run's owner folder with the lock; a folder that is not empty makes it fail with `Directory not empty`. In PowerShell on Windows, `rmdir` is `Remove-Item`: on a folder that is not empty it fails in a non-interactive session and asks for confirmation in an interactive one, and confirming removes the folder with its contents (seen by calling `Remove-Item` in PowerShell 7 on macOS; unverified on Windows, and unverified whether Claude Code's PowerShell tool is interactive). Never confirm that question.
 
-Stale means the owner folder was created more than 30 minutes ago: above the export's 10-minute time limit plus the load. `find` counts whole minutes: on macOS it calls a lock stale after more than 30 minutes, GNU `find` (Linux, Git Bash) from 31 minutes on. PowerShell compares to the second.
+Stale means the folder was created or last changed more than 30 minutes ago: above the export's 10-minute time limit plus the load. `find` counts whole minutes: on macOS it calls a lock stale after more than 30 minutes, GNU `find` (Linux, Git Bash) from 31 minutes on. PowerShell compares to the second.

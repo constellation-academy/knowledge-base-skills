@@ -140,7 +140,7 @@ const plain = (r: Run): string[][] => {
 };
 
 const writeExport = (e: unknown) => {
-  const tmp = join(IMPORT, "kb-export.json.tmp");
+  const tmp = join(IMPORT, "kb-export.aaaaaaaaaaaa.json.tmp");
   writeFileSync(tmp, typeof e === "string" ? e : JSON.stringify(e));
   chmodSync(tmp, 0o644); // update-operator step 6.3: readable for the container's neo4j user whatever the umask
   renameSync(tmp, join(IMPORT, "kb-export.json"));
@@ -206,12 +206,12 @@ const publishCommands = (): string[] => {
   const skill = readFileSync(join(import.meta.dir, "../plugins/knowledge-base/skills/update-operator/SKILL.md"), "utf8");
   const start = skill.indexOf("\n3. Only after the export exited 0");
   const step = skill.slice(start, skill.indexOf("\n4. ", start));
-  return [...step.matchAll(/```\n([\s\S]*?)```/g)].map((m) => m[1].trim().replaceAll("<import>", IMPORT));
+  return [...step.matchAll(/```\n([\s\S]*?)```/g)].map((m) => m[1].trim().replaceAll("<import>", IMPORT).replaceAll("<run id>", "aaaaaaaaaaaa"));
 };
 
 describe("publish step of update-operator", () => {
   test("an export written under umask 077 is readable by the container's neo4j user after step 6.3", async () => {
-    const tmp = join(IMPORT, "kb-export.json.tmp");
+    const tmp = join(IMPORT, "kb-export.aaaaaaaaaaaa.json.tmp");
     // The exporter's writeFileSync honours the session umask; under 077 it leaves 0600.
     writeFileSync(tmp, JSON.stringify(sample()), { mode: 0o600 });
     chmodSync(tmp, 0o600);
@@ -227,7 +227,7 @@ describe("publish step of update-operator", () => {
 
 describe("publish step with chmod denied (install upgraded from 1.1.5 without re-running setup)", () => {
   const publishWithoutChmod = async (umask: string) => {
-    const tmp = join(IMPORT, "kb-export.json.tmp");
+    const tmp = join(IMPORT, "kb-export.aaaaaaaaaaaa.json.tmp");
     Bun.spawnSync(["bash", "-c", `umask ${umask}; cat > "${tmp}"`], { stdin: new TextEncoder().encode(JSON.stringify(sample())) });
     for (const cmd of publishCommands().filter((c) => !c.startsWith("chmod "))) {
       expect(Bun.spawnSync(["bash", "-c", `umask ${umask}; ${cmd}`]).exitCode).toBe(0);
