@@ -94,4 +94,17 @@ describe.if(hasPython)("merge-settings.py", () => {
     expect(r.out).toBe("removed allow Bash(mkdir x)\nremoved allow Edit(y)\nkept allow Bash(ls)\npassword: absent\n");
     expect(JSON.parse(readFileSync(settings(), "utf8")).permissions).toEqual({ allow: ["Bash(ls)"] });
   });
+
+  test("refuses a remove that is not an object of string lists, before writing anything", () => {
+    const before = { permissions: { allow: ["Bash(ls)", "a"] } };
+    for (const bad of [{ remove: ["x"] }, { remove: "x" }, { remove: { allow: null } }, { remove: { allow: "Bash(ls)" } }, { remove: { allow: [1] } }]) {
+      writeFileSync(settings(), JSON.stringify(before));
+      const r = merge(bad);
+      expect(r.code, JSON.stringify(bad)).toBe(2);
+      expect(r.out).toStartWith("error: ");
+      expect(r.out).toEndWith("; nothing changed\n");
+      expect(JSON.parse(readFileSync(settings(), "utf8"))).toEqual(before);
+      expect(existsSync(fragment())).toBe(true);
+    }
+  });
 });

@@ -200,7 +200,7 @@ describe("update-operator reload", () => {
 
   test("setup removes the 1.2.4 rules no 1.2.5 command uses, in their Bash and PowerShell forms", () => {
     const legacy = ['chmod 644 "<import>/kb-export.json.tmp"', 'rm "<import>/kb-export.json"', 'mv "<import>/kb-export.json.tmp" "<import>/kb-export.json"'];
-    const list = setup.slice(setup.indexOf("rules that no skill runs any more"), setup.indexOf("- Accepted risk, the query wildcard"));
+    const list = setup.slice(setup.indexOf("- Earlier setups added rules"), setup.indexOf("- Accepted risk, the query wildcard"));
     for (const c of legacy) {
       expect(list).toContain(`Bash(${c})`);
       expect(list).toContain(`PowerShell(${c})`);
@@ -209,6 +209,48 @@ describe("update-operator reload", () => {
     expect(setup).not.toMatch(/does not remove them|cannot remove them/);
     expect(readme).not.toMatch(/does not remove them|cannot remove them/);
     expect(readme).toMatch(/the setup removes them/);
+  });
+
+  test("setup removes every reload lock and export rule an earlier commit of this version wrote, Windows copies included", () => {
+    const list = setup.slice(setup.indexOf("- Earlier setups added rules"), setup.indexOf("- Accepted risk, the query wildcard"));
+    for (const r of [
+      'Bash(mkdir "<import>/reload.lock/*")',
+      'Bash(rmdir "<import>/reload.lock/*")',
+      'Bash(find "<import>/reload.lock" -maxdepth 0 -mmin +10)',
+      'Bash(find "<import>/reload.lock" -maxdepth 0 -mmin +30)',
+      'Bash(find "<import>/reload.lock/*" -maxdepth 0 -mmin +30)',
+      "Bash(mktemp -u XXXXXXXXXXXX)",
+      'Bash(chmod 644 "<import>/kb-export.json")',
+      'Bash(chmod 644 "<import>/kb-export.*.json.tmp")',
+      'Bash(mv "<import>/kb-export.*.json.tmp" "<import>/kb-export.json")',
+      'PowerShell(mkdir "<import>/reload.lock/*")',
+      'PowerShell(rmdir "<import>/reload.lock/*")',
+      'PowerShell(chmod 644 "<import>/kb-export.json")',
+      'PowerShell(chmod 644 "<import>/kb-export.*.json.tmp")',
+      'PowerShell(mv "<import>/kb-export.*.json.tmp" "<import>/kb-export.json")',
+      'PowerShell((Get-Item "<import>/reload.lock").LastWriteTime.AddMinutes(10) -lt (Get-Date))',
+      'PowerShell((Get-Item "<import>/reload.lock/*").LastWriteTime.AddMinutes(30) -lt (Get-Date))',
+    ]) expect(list).toContain(r);
+    const block = list.slice(list.indexOf("```\n") + 4, list.indexOf("```", list.indexOf("```\n") + 4));
+    for (const line of block.split("\n").filter(Boolean)) expect(ruleBlock, line).not.toContain(line);
+    expect(block).not.toContain("[guid]");
+  });
+
+  test("the sweep is named as macOS and Linux only, with the Windows case, wherever a leftover is said to be cleared", () => {
+    const windows = /on Windows[^.]*by hand/;
+    const layout = section(contract, "## Local layout");
+    const row = layout.slice(layout.indexOf("| Export files |"), layout.indexOf("\n", layout.indexOf("| Export files |")));
+    expect(row).toMatch(/on macOS and Linux/);
+    expect(row).toMatch(windows);
+    const timeout = stepOf(3).slice(stepOf(3).indexOf("It times out"));
+    for (const t of [timeout.slice(0, timeout.indexOf("\n")), stepOf(7)]) {
+      expect(t).toMatch(/on macOS and Linux/);
+      expect(t).toMatch(windows);
+    }
+    expect(updater).toContain("| Removing the export file after the export timed out | Leave it: a background export may still write it; on macOS and Linux setup-operator's sweep clears it, on Windows the developer removes it by hand |");
+    const grant = setup.slice(setup.indexOf("1. **Load.**"), setup.indexOf("2. **Full-text index"));
+    expect(grant).toContain("on macOS and Linux the next setup-operator run removes it once it is older than 30 minutes, on Windows the developer removes it by hand");
+    expect(rules).toContain("on macOS and Linux step 7.1 removes such files once they are older than 30 minutes, on Windows the developer removes them by hand");
   });
 
   test("setup grants its load session only the export, and the run's file removal prompts", () => {

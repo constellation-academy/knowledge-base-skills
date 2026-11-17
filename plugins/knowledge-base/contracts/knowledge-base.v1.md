@@ -19,7 +19,7 @@ This contract binds every knowledge base (KB) that uses the `knowledge-base` plu
 | Neo4j data | `~/.kb/<kb id>/data` |
 | Import folder | `~/.kb/<kb id>/import`, mounted at `/import` in the container |
 | Query files | `~/.kb/<kb id>/import/queries/<name>.cypher` |
-| Export files | `~/.kb/<kb id>/import/kb-export.<run id>.json`, one per reload run; `<run id>` is 12 random letters or digits a command draws once per run. The run's removal of its file after the load is attempted, not guaranteed; setup-operator's sweep clears leftovers older than 30 minutes |
+| Export files | `~/.kb/<kb id>/import/kb-export.<run id>.json`, one per reload run; `<run id>` is 12 random letters or digits a command draws once per run. The run's removal of its file after the load is attempted, not guaranteed; on macOS and Linux setup-operator's sweep clears leftovers older than 30 minutes, on Windows the developer removes them by hand |
 | Neo4j settings | `~/.kb/<kb id>/neo4j.env`: APOC, file import, the import folder and the procedure allowlist, passed with `--env-file`; no credentials |
 | Writer worktrees | `~/.kb/<kb id>/worktrees/<name>`, with the writer's message files next to them as `<name>.<file>` |
 | Setup staging | `~/.kb/.incoming` (a clone before its KB id is known) and `~/.kb/setup-fragment.json` (settings to merge); both are removed by the setup |

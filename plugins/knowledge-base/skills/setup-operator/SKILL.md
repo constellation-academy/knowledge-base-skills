@@ -50,7 +50,7 @@ docker run --rm --network none -v "<scripts>:/s:ro" -v "<home>/.kb:/f" -v "<proj
 
 - A missing `<settings>` is created with mode 600 and the owner of `<project>/.claude`. An existing one keeps its owner and other keys and gets mode 600.
 - An entry under `remove` that `<settings>` holds is removed (`removed …`); one it does not hold prints nothing. A missing key or entry is added (`added …`); one with the same value stays (`kept …`). A key with another value is never changed: `conflict env <key>`, with the current and wanted value for `KB_PATH`, `NEO4J_SHELL`, `NEO4J_USERNAME` and `NEO4J_DATABASE` only. Every conflict goes into the report.
-- `error: … nothing changed` (`<settings>` is not valid JSON, or its `env`, `permissions` or a permission list has the wrong type): the script wrote and deleted nothing; reply that line and stop.
+- `error: … nothing changed` (`<settings>` is not valid JSON, or its `env`, `permissions` or a permission list has the wrong type, or the fragment's `remove` is not an object of string lists): the script wrote and deleted nothing; reply that line and stop.
 - The fragment write or the merge command is denied by auto mode: reply `auto mode blocks the settings merge; switch this session to manual mode (shift+tab), or add Edit(~/.kb/setup-fragment.json) and Bash(docker *) to your user settings (on Windows also PowerShell(docker *)), then run setup-operator again` and stop.
 
 ## Commands per OS
@@ -225,19 +225,35 @@ mcp__kb-<kb>__*
   PowerShell(chmod 644 "<import>/kb-export.json.tmp")
   PowerShell(rm "<import>/kb-export.json")
   PowerShell(mv "<import>/kb-export.json.tmp" "<import>/kb-export.json")
+  Bash(chmod 644 "<import>/kb-export.json")
+  Bash(chmod 644 "<import>/kb-export.*.json.tmp")
+  Bash(mv "<import>/kb-export.*.json.tmp" "<import>/kb-export.json")
+  Bash(mktemp -u XXXXXXXXXXXX)
   Bash(mkdir "<import>/reload.lock")
   Bash(rmdir "<import>/reload.lock")
+  Bash(mkdir "<import>/reload.lock/*")
+  Bash(rmdir "<import>/reload.lock/*")
+  Bash(find "<import>/reload.lock" -maxdepth 0 -mmin +10)
+  Bash(find "<import>/reload.lock" -maxdepth 0 -mmin +30)
+  Bash(find "<import>/reload.lock/*" -maxdepth 0 -mmin +30)
+  PowerShell(chmod 644 "<import>/kb-export.json")
+  PowerShell(chmod 644 "<import>/kb-export.*.json.tmp")
+  PowerShell(mv "<import>/kb-export.*.json.tmp" "<import>/kb-export.json")
   PowerShell(mkdir "<import>/reload.lock")
   PowerShell(rmdir "<import>/reload.lock")
+  PowerShell(mkdir "<import>/reload.lock/*")
+  PowerShell(rmdir "<import>/reload.lock/*")
+  PowerShell((Get-Item "<import>/reload.lock").LastWriteTime.AddMinutes(10) -lt (Get-Date))
   PowerShell((Get-Item "<import>/reload.lock").LastWriteTime.AddMinutes(30) -lt (Get-Date))
+  PowerShell((Get-Item "<import>/reload.lock/*").LastWriteTime.AddMinutes(30) -lt (Get-Date))
   Edit(~/.kb/<kb>/import/reload.lock)
   ```
 
-  The first six come from setups of knowledge-base 1.2.4 and earlier, their `PowerShell(…)` forms from those on Windows; the rest from a development build of 1.2.5, which took a reload lock. An empty `<import>/reload.lock` folder that such a build left stays; it does no harm.
+  The first six come from setups of knowledge-base 1.2.4 and earlier, their `PowerShell(…)` forms from those on Windows; the rest from development builds of 1.2.5, which took a reload lock and named their export files differently. An empty `<import>/reload.lock` folder, or one holding folders, that such a build left stays; it does no harm.
 - Accepted risk, the query wildcard: the trailing `*` of the `<NEO4J_SHELL>` rule admits any further `cypher-shell` arguments. Together with the `Edit` rule on the query folder, a session can write and run any Cypher against this KB's own store, which holds only the rebuildable index. Nothing leaves the machine that way: the store has no network route outside Docker, so `LOAD CSV` and APOC loads from a URL fail, APOC outside the allowlist is not loaded, file loads stay in `/import`, and an inserted `-a <host>` reaches only containers on `kb-<kb>`.
 - Not pre-allowed, so these prompt, unless the developer's own permission mode, rules or hooks allow them:
   - the export command, once per reindex, with its `cd` into the clone;
-  - update-operator's removal of its run's export file, `rm "<import>/kb-export.<run id>.json"`, once per reindex: a rule with `*` in its place would admit the removal of any file. A session that cannot prompt leaves the file behind; step 7.1 removes such files once they are older than 30 minutes;
+  - update-operator's removal of its run's export file, `rm "<import>/kb-export.<run id>.json"`, once per reindex: a rule with `*` in its place would admit the removal of any file. A session that cannot prompt leaves the file behind; on macOS and Linux step 7.1 removes such files once they are older than 30 minutes, on Windows the developer removes them by hand;
   - `pr.pre_commit`, with its `cd` into the worktree;
   - the writer's git work: `git -C "<clone>" remote get-url origin`, the worktree and branch, the remote branch check, staging, commit and push;
   - the pull request call: `gh --version` and `gh api …`, or `az --version` and `az repos pr create …`;
@@ -316,7 +332,7 @@ The new `env` and the MCP server reach only new sessions, so each check runs in 
      claude -p "Use the knowledge-base:update-operator skill and reply with its report block only" --allowedTools 'Bash(cd "<clone>")' 'Bash(<export command>)'
      ```
 
-     The grant holds for that one session only, and it names the export with its commit, so it covers no other export run. The `*` admits any text, further arguments included, in the export's `{out}` argument in that one session. The session cannot remove its own export file, whose `rm` is not granted: the next setup-operator run removes it once it is older than 30 minutes.
+     The grant holds for that one session only, and it names the export with its commit, so it covers no other export run. The `*` admits any text, further arguments included, in the export's `{out}` argument in that one session. The session cannot remove its own export file, whose `rm` is not granted: on macOS and Linux the next setup-operator run removes it once it is older than 30 minutes, on Windows the developer removes it by hand.
    - After the session, `git -C "<clone>" rev-parse HEAD` is `<head>`: the session fast-forwards the clone itself, so `<head>` differs from `<commit>` when `origin/<default>` moved in between.
    - Passes when the reply's `index:` line is `loaded` or `current`, its `commit:` line equals `<head>`, and its `docs:` line is a number of at least 1. Otherwise the reason is the reply's `index:` line, `the index holds no documents`, or `the index is at <reply commit>, the clone at <head>`.
 2. **Full-text index and test title.** With the MCP server registered (step 6):
