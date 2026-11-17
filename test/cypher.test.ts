@@ -472,7 +472,6 @@ describe("guards", () => {
     rmSync(join(IMPORT, runFile()));
     const missing = await loadFile();
     expect(missing.code).not.toBe(0);
-    writeExport(sample());
     expect(rows(await query("status", { kb: "t" }))).toEqual([{ kb: "t", sha: "abc123", docs: 5 }]);
   });
 
