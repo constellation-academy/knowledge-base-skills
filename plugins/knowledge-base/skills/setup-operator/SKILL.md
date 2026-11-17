@@ -42,15 +42,15 @@ The layout, the env keys and the isolation rules are in the contract, `contracts
 
 ## Merge into the settings
 
-Write `<fragment>` with the file tools (a fragment left by a failed run is read first, since the Write tool overwrites only a file it has read; it holds no secret), and run the merge only after the write succeeded: a JSON object with the `env` keys and the `permissions` lists (`allow`, `deny`) to add. Create `<project>/.claude` if it is missing (Commands per OS), so Docker does not create it as another user; `.claude` is a protected path, so this one command always asks the developer, and a headless session cannot run it. Then run, unchanged:
+Write `<fragment>` with the file tools (a fragment left by a failed run is read first, since the Write tool overwrites only a file it has read; it holds no secret), and run the merge only after the write succeeded: a JSON object with the `env` keys and the `permissions` lists (`allow`, `deny`) to add, and the `remove` lists (`allow`) to remove. Create `<project>/.claude` if it is missing (Commands per OS), so Docker does not create it as another user; `.claude` is a protected path, so this one command always asks the developer, and a headless session cannot run it. Then run, unchanged:
 
 ```
 docker run --rm --network none -v "<scripts>:/s:ro" -v "<home>/.kb:/f" -v "<project>/.claude:/w" --entrypoint python <mcp image> /s/merge-settings.py /f/setup-fragment.json /w/settings.local.json
 ```
 
 - A missing `<settings>` is created with mode 600 and the owner of `<project>/.claude`. An existing one keeps its owner and other keys and gets mode 600.
-- A missing key or entry is added (`added …`); one with the same value stays (`kept …`). A key with another value is never changed: `conflict env <key>`, with the current and wanted value for `KB_PATH`, `NEO4J_SHELL`, `NEO4J_USERNAME` and `NEO4J_DATABASE` only. Every conflict goes into the report.
-- `error: … nothing changed` (`<settings>` is not valid JSON, or its `env`, `permissions` or a permission list has the wrong type): the script wrote and deleted nothing; reply that line and stop.
+- An entry under `remove` that `<settings>` holds is removed (`removed …`); one it does not hold prints nothing. A missing key or entry is added (`added …`); one with the same value stays (`kept …`). A key with another value is never changed: `conflict env <key>`, with the current and wanted value for `KB_PATH`, `NEO4J_SHELL`, `NEO4J_USERNAME` and `NEO4J_DATABASE` only. Every conflict goes into the report.
+- `error: … nothing changed` (`<settings>` is not valid JSON, or its `env`, `permissions` or a permission list has the wrong type, or the fragment's `remove` is not an object whose keys are permission lists and whose values are lists of strings): the script wrote and deleted nothing; reply that line and stop.
 - The fragment write or the merge command is denied by auto mode: reply `auto mode blocks the settings merge; switch this session to manual mode (shift+tab), or add Edit(~/.kb/setup-fragment.json) and Bash(docker *) to your user settings (on Windows also PowerShell(docker *)), then run setup-operator again` and stop.
 
 ## Commands per OS
@@ -178,13 +178,14 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
    - `replace_env`: `["NEO4J_SHELL"]` when the developer confirmed the store switch of step 2.7; otherwise leave it out. The script replaces only the listed keys among `KB_PATH`, `NEO4J_SHELL`, `NEO4J_USERNAME` and `NEO4J_DATABASE`, and reports `replaced env <key>: was …, now …`.
    - `permissions.allow`: the rules of "Allow rules" below, except the `<NEO4J_SHELL>` query rule.
    - `permissions.deny`: `Read(/.claude/settings.local.json)`.
+   - `remove.allow`: the rules that no skill runs any more, listed in "Allow rules" below.
 
    Its `<password state>` is the state from here on. `<database>`: the current value from `conflict env NEO4J_DATABASE: current <value>, …` when the merge printed that line; otherwise `neo4j`.
 3. Merge a second fragment with only `permissions.allow` = the `<NEO4J_SHELL>` query rule, rendered with `<database>`. It now matches the database every query uses.
 
 ### Allow rules
 
-Each rule is written with the paths exactly as the skills write them in commands. On Windows, add every `Bash(…)` rule once more as `PowerShell(…)` with the same text, and replace the three `printenv` rules by `PowerShell([Environment]::GetEnvironmentVariable('KB_PATH'))` and the same for `NEO4J_SHELL` and `NEO4J_DATABASE`.
+Each rule is written with the paths exactly as the skills write them in commands. On Windows, add every `Bash(…)` rule once more as `PowerShell(…)` with the same text, except the `chmod` and `mktemp` rules, which have no PowerShell copy; replace the three `printenv` rules by `PowerShell([Environment]::GetEnvironmentVariable('KB_PATH'))` and the same for `NEO4J_SHELL` and `NEO4J_DATABASE`; and add the PowerShell run id command of `../update-operator/runtime.md`, section "Reload": `PowerShell([guid]::NewGuid().ToString('N').Substring(0,12))`.
 
 ```
 Bash(printenv KB_PATH)
@@ -198,9 +199,8 @@ Bash(git -C "<clone>" fetch --quiet origin)
 Bash(git -C "<clone>" merge --ff-only --quiet origin/<default>)
 Bash(git -C "<clone>" log -1 --format=%cr HEAD)
 Bash(<NEO4J_SHELL> -d <database> --format plain -f /import/queries/*)
-Bash(chmod 644 "<import>/kb-export.json.tmp")
-Bash(rm "<import>/kb-export.json")
-Bash(mv "<import>/kb-export.json.tmp" "<import>/kb-export.json")
+Bash(mktemp -u "<import>/kb-export.XXXXXXXXXXXX")
+Bash(chmod 644 "<import>"/kb-export.????????????.json)
 Read(//<plugins folder>/**)
 Read(//<kb folder>/**)
 Edit(~/.kb/<kb>/import/queries/*.cypher)
@@ -214,16 +214,52 @@ mcp__kb-<kb>__*
 
 - `<plugins folder>`: the parent folder of the plugin root (the plugin root is two folders above this skill's directory). The skills read their shared files there (`runtime.md`, the contract, the query files), and list the query folder with `ls`; the rule covers both, and every installed plugin version.
 - `//<plugins folder>/**` and `//<kb folder>/**` are absolute paths without their leading `/`, after `//`; on Windows in the form `//c/Users/…` with forward slashes. The KB folder is readable only; it is not an additional working directory, so no permission mode, `acceptEdits` included, edits anything under it beyond the `Edit` rules above.
-- Every `Bash` rule but one is an exact command. The `Edit` rules admit only text no program runs as code: `.cypher` files in the query folder, which only `cypher-shell` reads; Markdown documents in a worktree; and the writer's message files next to the worktrees. A script, `package.json`, a `.git` file or a companion change of another type in a worktree prompts, with its content shown, before it is written. So a later approved command, such as `pr.pre_commit`, runs only code the developer has seen.
-- Accepted risk, the one wildcard rule: the trailing `*` of the `<NEO4J_SHELL>` rule admits any further `cypher-shell` arguments. Together with the `Edit` rule on the query folder, a session can write and run any Cypher against this KB's own store, which holds only the rebuildable index. Nothing leaves the machine that way: the store has no network route outside Docker, so `LOAD CSV` and APOC loads from a URL fail, APOC outside the allowlist is not loaded, file loads stay in `/import`, and an inserted `-a <host>` reaches only containers on `kb-<kb>`.
+- Every `Bash` rule is an exact command except the `<NEO4J_SHELL>` rule. The `?` of the `chmod` rule are text to the permission system, which treats only `*` as a wildcard: verified with Claude Code 2.1.326 in a headless session holding only this rule: the command ran without a prompt; the same `chmod` with one more file argument, with the literal name `kb-export.abcdef123456.json`, or with the 11-character name `kb-export.abcdef12345.json` was denied. The shell expands them to the export file of every run in `<import>`, and the `chmod` gives each the mode its run sets anyway.
+- The `Edit` rules admit only text no program runs as code: `.cypher` files in the query folder, which only `cypher-shell` reads; Markdown documents in a worktree; and the writer's message files next to the worktrees. A script, `package.json`, a `.git` file or a companion change of another type in a worktree prompts, with its content shown, before it is written. So a later approved command, such as `pr.pre_commit`, runs only code the developer has seen.
+- Earlier setups added rules that no skill runs any more. The merge of step 4.2 removes them by their exact text, which identifies them; a rule with the same text that the developer added by hand goes too. No command of this version matches any of them. The rules that no skill runs any more:
+
+  ```
+  Bash(chmod 644 "<import>/kb-export.json.tmp")
+  Bash(rm "<import>/kb-export.json")
+  Bash(mv "<import>/kb-export.json.tmp" "<import>/kb-export.json")
+  PowerShell(chmod 644 "<import>/kb-export.json.tmp")
+  PowerShell(rm "<import>/kb-export.json")
+  PowerShell(mv "<import>/kb-export.json.tmp" "<import>/kb-export.json")
+  Bash(chmod 644 "<import>/kb-export.json")
+  Bash(chmod 644 "<import>/kb-export.*.json.tmp")
+  Bash(mv "<import>/kb-export.*.json.tmp" "<import>/kb-export.json")
+  Bash(mktemp -u XXXXXXXXXXXX)
+  Bash(mkdir "<import>/reload.lock")
+  Bash(rmdir "<import>/reload.lock")
+  Bash(mkdir "<import>/reload.lock/*")
+  Bash(rmdir "<import>/reload.lock/*")
+  Bash(find "<import>/reload.lock" -maxdepth 0 -mmin +10)
+  Bash(find "<import>/reload.lock" -maxdepth 0 -mmin +30)
+  Bash(find "<import>/reload.lock/*" -maxdepth 0 -mmin +30)
+  PowerShell(chmod 644 "<import>/kb-export.json")
+  PowerShell(chmod 644 "<import>/kb-export.*.json.tmp")
+  PowerShell(mv "<import>/kb-export.*.json.tmp" "<import>/kb-export.json")
+  PowerShell(mkdir "<import>/reload.lock")
+  PowerShell(rmdir "<import>/reload.lock")
+  PowerShell(mkdir "<import>/reload.lock/*")
+  PowerShell(rmdir "<import>/reload.lock/*")
+  PowerShell((Get-Item "<import>/reload.lock").LastWriteTime.AddMinutes(10) -lt (Get-Date))
+  PowerShell((Get-Item "<import>/reload.lock").LastWriteTime.AddMinutes(30) -lt (Get-Date))
+  PowerShell((Get-Item "<import>/reload.lock/*").LastWriteTime.AddMinutes(30) -lt (Get-Date))
+  Edit(~/.kb/<kb>/import/reload.lock)
+  ```
+
+  The first six come from setups of knowledge-base 1.2.4 and earlier, their `PowerShell(…)` forms from those on Windows; the rest from development builds of 1.2.5, which took a reload lock and named their export files differently. An empty `<import>/reload.lock` folder, or one holding folders, that such a build left stays; it does no harm.
+- Accepted risk, the query wildcard: the trailing `*` of the `<NEO4J_SHELL>` rule admits any further `cypher-shell` arguments. Together with the `Edit` rule on the query folder, a session can write and run any Cypher against this KB's own store, which holds only the rebuildable index. Nothing leaves the machine that way: the store has no network route outside Docker, so `LOAD CSV` and APOC loads from a URL fail, APOC outside the allowlist is not loaded, file loads stay in `/import`, and an inserted `-a <host>` reaches only containers on `kb-<kb>`.
 - Not pre-allowed, so these prompt, unless the developer's own permission mode, rules or hooks allow them:
   - the export command, once per reindex, with its `cd` into the clone;
+  - update-operator's removal of its run's export file, `rm "<import>/kb-export.<run id>.json"`, once per reindex: a rule with `*` in its place would admit the removal of any file. A session that cannot prompt leaves the file behind; on macOS and Linux step 7.1 removes such files once they are older than 30 minutes, on Windows the developer removes them by hand;
   - `pr.pre_commit`, with its `cd` into the worktree;
   - the writer's git work: `git -C "<clone>" remote get-url origin`, the worktree and branch, the remote branch check, staging, commit and push;
   - the pull request call: `gh --version` and `gh api …`, or `az --version` and `az repos pr create …`;
   - a companion change that is not a Markdown file.
 
-  Each could be widened into a prompt-free file read, file write or program run: a `*` there matches any text, inserted flags included, and the export and `pre_commit` commands run code from their working directory.
+  Each could be widened into a prompt-free file read, file write or program run: a `*` there matches any text, inserted flags included, and the export and `pre_commit` commands run code from their working directory. A session that cannot prompt therefore runs the export only with the one-session grant of step 7.1.
 
 ## 5. Password and start
 
@@ -271,17 +307,32 @@ A new or recreated container only. A reused container (step 3a.5) skips to step 
 
 The new `env` and the MCP server reach only new sessions, so each check runs in a fresh session started in `<project>` with `claude -p`. The setup is done only when all three checks pass. A setup that skipped this step (Docker missing in step 1.2, a recreate declined in step 3a.7) reports `index: not ready — <that reason>`.
 
-1. **Load.** The load runs the manifest's export. The export is not pre-allowed, and a headless session cannot ask, so this one session gets an explicit one-time grant for exactly the two commands update-operator runs (its step 6.2):
+1. **Load.** The load runs the manifest's export. It is not pre-allowed, and a headless session cannot ask, so this one session gets an explicit one-time grant for exactly the `cd` and the export of update-operator's step 6.3.
+   - First, on macOS and Linux, sweep leftover export files older than 30 minutes, above the export's 10-minute limit plus the load: a younger one may belong to a run that reloads now, in this project or another. Each command prompts; a denial or a failure leaves the files, and the setup continues:
+
+     ```
+     find "<import>" -maxdepth 1 -name "kb-export.*.json" -mmin +30 -delete
+     ```
+
+     ```
+     find "<import>" -maxdepth 1 -name "*.json.tmp" -mmin +30 -delete
+     ```
+
+     ```
+     find "<import>" -maxdepth 1 -name "kb-export.json" -mmin +30 -delete
+     ```
+
+     The first removes the export files of runs that stopped, timed out, or whose removal was denied; the second the temp exports of knowledge-base 1.2.4 and earlier; the third the shared export file of knowledge-base 1.2.4 and earlier, which a 1.2.4 run in another project may still use while it is younger. On Windows there is no such command without a pipe: leftovers stay until the developer removes them by hand.
    - Fast-forward the clone first, as update-operator's steps 2.3 and 2.4 do: `git -C "<clone>" fetch --quiet origin`, then `git -C "<clone>" merge --ff-only --quiet origin/<default>`. The fetch fails: continue on the clone's current commit. The merge fails: reply `the read-only clone <clone> cannot fast-forward to origin/<default>: <first error line>; clean it up yourself, then run setup-operator again` and stop. The session then exports the commit the grant names.
-   - `<commit>`: `git -C "<clone>" rev-parse HEAD`; `<export command>`: the manifest's `export.cmd` with `{ref}` replaced by `"<commit>"` and `{out}` by `"<import>/kb-export.json.tmp"`, as update-operator renders it.
-   - `<export command>` contains `*`, `;`, `&`, `|`, `)`, a backtick or a line break: it cannot be granted exactly. Run the session without the `--allowedTools` part; the export is refused there, and the failure action is `run "fetch: kb <first resource name of the manifest>" once in an interactive session in <project>, then run setup-operator again`.
+   - `<commit>`: `git -C "<clone>" rev-parse HEAD`; `<export command>`: the manifest's `export.cmd` with `{ref}` replaced by `"<commit>"` and `{out}` by `"<import>/kb-export.*.json"`: update-operator renders it with the run id the session draws in place of `*`.
+   - The manifest's `export.cmd`, `<clone>` or `<import>` contains `*`, `;`, `&`, `|`, `)`, a backtick or a line break (the one `*` this step puts into `{out}` is not counted): the grant would not be exact, since all three end up inside its rules. Run the session without the `--allowedTools` part; the export is refused there, and the failure action is `run "fetch: kb <first resource name of the manifest>" once in an interactive session in <project>, then run setup-operator again`.
    - Otherwise, allowing up to 10 minutes:
 
      ```
      claude -p "Use the knowledge-base:update-operator skill and reply with its report block only" --allowedTools 'Bash(cd "<clone>")' 'Bash(<export command>)'
      ```
 
-     The grant holds for that one session only, and it names the export with its commit, so it covers no other export run.
+     The grant holds for that one session only, and it names the export with its commit, so it covers no other export run. The `*` admits any text, further arguments included, in the export's `{out}` argument in that one session. The session cannot remove its own export file, whose `rm` is not granted: on macOS and Linux the next setup-operator run removes it once it is older than 30 minutes, on Windows the developer removes it by hand.
    - After the session, `git -C "<clone>" rev-parse HEAD` is `<head>`: the session fast-forwards the clone itself, so `<head>` differs from `<commit>` when `origin/<default>` moved in between.
    - Passes when the reply's `index:` line is `loaded` or `current`, its `commit:` line equals `<head>`, and its `docs:` line is a number of at least 1. Otherwise the reason is the reply's `index:` line, `the index holds no documents`, or `the index is at <reply commit>, the clone at <head>`.
 2. **Full-text index and test title.** With the MCP server registered (step 6):

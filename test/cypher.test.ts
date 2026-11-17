@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -139,16 +140,22 @@ const plain = (r: Run): string[][] => {
     .map((l) => l.split(", "));
 };
 
-const writeExport = (e: unknown) => {
-  const tmp = join(IMPORT, "kb-export.json.tmp");
-  writeFileSync(tmp, typeof e === "string" ? e : JSON.stringify(e));
-  chmodSync(tmp, 0o644); // update-operator step 6.3: readable for the container's neo4j user whatever the umask
-  renameSync(tmp, join(IMPORT, "kb-export.json"));
+const newRunId = () => randomBytes(6).toString("hex");
+let RUN_ID = newRunId();
+const runFile = (id = RUN_ID) => `kb-export.${id}.json`;
+
+const writeExport = (e: unknown, id = RUN_ID) => {
+  const f = join(IMPORT, runFile(id));
+  writeFileSync(f, typeof e === "string" ? e : JSON.stringify(e));
+  chmodSync(f, 0o644);
 };
 
+const loadFile = (id = RUN_ID, kb = "t") => query("load", { kb, file: runFile(id) });
+
 const load = async (e: unknown, kb = "t"): Promise<Run> => {
+  RUN_ID = newRunId();
   writeExport(e);
-  return query("load", { kb });
+  return loadFile(RUN_ID, kb);
 };
 
 const fulltext = (analyzer = "standard-no-stop-words") => query("fulltext", { analyzer });
@@ -198,51 +205,53 @@ afterAll(() => {
 });
 
 beforeEach(async () => {
+  RUN_ID = newRunId();
   await cypher("MATCH (n) DETACH DELETE n;");
 });
 
-// update-operator step 6.3, as its SKILL.md writes it: the bash/zsh commands that publish a finished export.
-const publishCommands = (): string[] => {
+const chmodCommand = (): string => {
   const skill = readFileSync(join(import.meta.dir, "../plugins/knowledge-base/skills/update-operator/SKILL.md"), "utf8");
-  const start = skill.indexOf("\n3. Only after the export exited 0");
-  const step = skill.slice(start, skill.indexOf("\n4. Run the query `load`", start));
-  return [...step.matchAll(/```\n([\s\S]*?)```/g)].map((m) => m[1].trim().replaceAll("<import>", IMPORT));
+  const reload = skill.slice(skill.indexOf("\n### 6. Reload the index"), skill.indexOf("\n### 7. Report"));
+  const chmod = [...reload.matchAll(/```\n([\s\S]*?)```/g)].map((m) => m[1].trim()).find((c) => c.startsWith("chmod "));
+  if (!chmod) throw new Error("no chmod in update-operator step 6");
+  return chmod.replaceAll("<import>", IMPORT);
 };
 
-describe("publish step of update-operator", () => {
-  test("an export written under umask 077 is readable by the container's neo4j user after step 6.3", async () => {
-    const tmp = join(IMPORT, "kb-export.json.tmp");
-    // The exporter's writeFileSync honours the session umask; under 077 it leaves 0600.
-    writeFileSync(tmp, JSON.stringify(sample()), { mode: 0o600 });
-    chmodSync(tmp, 0o600);
-    for (const cmd of publishCommands()) {
-      const r = Bun.spawnSync(["bash", "-c", `umask 077; ${cmd}`]);
-      expect(r.exitCode, `${cmd}: ${r.stderr}`).toBe(0);
-    }
-    expect(existsSync(tmp)).toBe(false);
-    expect(statSync(join(IMPORT, "kb-export.json")).mode & 0o004).toBe(0o004);
-    expect(rows(await query("load", { kb: "t" }))).toEqual([{ kb: "t", sha: "abc123", docs: 5 }]);
-  });
-});
+const exportUnder = (umask: string, id = RUN_ID) => {
+  rmSync(join(IMPORT, runFile(id)), { force: true });
+  return Bun.spawnSync(["bash", "-c", `umask ${umask}; cat > "${join(IMPORT, runFile(id))}"`], { stdin: new TextEncoder().encode(JSON.stringify(sample())) });
+};
 
-describe("publish step with chmod denied (install upgraded from 1.1.5 without re-running setup)", () => {
-  const publishWithoutChmod = async (umask: string) => {
-    const tmp = join(IMPORT, "kb-export.json.tmp");
-    Bun.spawnSync(["bash", "-c", `umask ${umask}; cat > "${tmp}"`], { stdin: new TextEncoder().encode(JSON.stringify(sample())) });
-    for (const cmd of publishCommands().filter((c) => !c.startsWith("chmod "))) {
-      expect(Bun.spawnSync(["bash", "-c", `umask ${umask}; ${cmd}`]).exitCode).toBe(0);
-    }
-    return query("load", { kb: "t" });
-  };
-
-  test("umask 022: the export is readable without chmod and loads, as in 1.1.5", async () => {
-    expect(rows(await publishWithoutChmod("022"))).toEqual([{ kb: "t", sha: "abc123", docs: 5 }]);
+describe("chmod and load of update-operator step 6", () => {
+  test("an export written under umask 077 is readable by the container's neo4j user after the chmod, and loads by its file name", async () => {
+    exportUnder("077");
+    expect(statSync(join(IMPORT, runFile())).mode & 0o004).toBe(0);
+    const r = Bun.spawnSync(["bash", "-c", `umask 077; ${chmodCommand()}`]);
+    expect(r.exitCode, r.stderr.toString()).toBe(0);
+    expect(statSync(join(IMPORT, runFile())).mode & 0o004).toBe(0o004);
+    expect(rows(await loadFile())).toEqual([{ kb: "t", sha: "abc123", docs: 5 }]);
   });
 
-  test("umask 077: the load fails with the error step 6.4 maps to the setup migration", async () => {
-    const r = await publishWithoutChmod("077");
+  test("chmod denied, umask 022: the export is readable anyway and loads", async () => {
+    exportUnder("022");
+    expect(rows(await loadFile())).toEqual([{ kb: "t", sha: "abc123", docs: 5 }]);
+  });
+
+  // Docker Desktop on macOS shares host files without enforcing their mode, so a 0600 export loads there.
+  test.skipIf(process.platform === "darwin")("chmod denied, umask 077: the load fails with the error step 6.5 maps to the chmod", async () => {
+    exportUnder("077");
+    const r = await loadFile();
     expect(r.code).not.toBe(0);
-    expect(r.stderr).toContain("Cannot open file /import/kb-export.json for reading");
+    expect(r.stderr).toContain(`Cannot open file /import/${runFile()} for reading`);
+  });
+
+  test("two runs load their own files at once: one KBIndex, no duplicate, the commit stamped", async () => {
+    const [first, second] = [newRunId(), newRunId()];
+    writeExport(sample(), first);
+    writeExport(sample(), second);
+    const [a, b] = await Promise.all([loadFile(first), loadFile(second)]);
+    expect([a.code, b.code]).toContain(0);
+    expect(rows(await query("status", { kb: "t" }))).toEqual([{ kb: "t", sha: "abc123", docs: 5 }]);
   });
 });
 
@@ -460,10 +469,9 @@ describe("guards", () => {
     expect((await load({ kb: "t", sha: "s", docs: [{ path: "a.md" }] })).code).not.toBe(0);
     expect((await load({ kb: "t", sha: "s", docs: [doc({ path: "a.md" }), doc({ path: "a.md" })] })).stderr).toMatch(/twice/);
     expect((await load({ kb: "t", docs: [doc({ path: "a.md" })] })).stderr).toMatch(/sha/);
-    rmSync(join(IMPORT, "kb-export.json"));
-    const missing = await query("load", { kb: "t" });
+    rmSync(join(IMPORT, runFile()));
+    const missing = await loadFile();
     expect(missing.code).not.toBe(0);
-    writeExport(sample());
     expect(rows(await query("status", { kb: "t" }))).toEqual([{ kb: "t", sha: "abc123", docs: 5 }]);
   });
 
@@ -526,7 +534,7 @@ describe("container confinement", () => {
 describe("concurrency", () => {
   test("two parallel loads on an empty store leave no duplicates", async () => {
     writeExport(sample());
-    const [a, b] = await Promise.all([query("load", { kb: "t" }), query("load", { kb: "t" })]);
+    const [a, b] = await Promise.all([loadFile(), loadFile()]);
     expect([a.code, b.code]).toContain(0);
     const counts = plain(
       await cypher(

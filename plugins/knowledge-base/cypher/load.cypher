@@ -1,5 +1,5 @@
 :begin
-CALL apoc.load.json('kb-export.json') YIELD value
+CALL apoc.load.json($file) YIELD value
 CALL apoc.util.validate(value.kb IS NULL OR value.kb <> $kb, 'refusing load: the export is for KB %s, not %s', [toString(value.kb), $kb])
 CALL apoc.util.validate(value.sha IS NULL OR NOT value.sha IS :: STRING OR value.sha = '', 'refusing load: the export has no sha', [])
 CALL apoc.util.validate(value.docs IS NULL OR NOT value.docs IS :: LIST<ANY> OR size(value.docs) = 0, 'refusing load: the export has no docs, the existing graph is kept', [])

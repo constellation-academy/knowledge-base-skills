@@ -7,7 +7,7 @@ description: Use when a knowledge-base plugin skill is about to read or write th
 
 Brings the read-only clone to `origin/<default>` and the local Neo4j index to the clone's commit, then reports the state. It never fails its caller: anything that blocks the index ends as `index: unavailable` with a reason, and the caller reads the clone's files instead. It never edits a file in the clone.
 
-Mechanics shared with the other skills (locating the KB, shell rules, running a query, reading its output) are in `runtime.md` next to this file. Follow them exactly. When a command is denied or fails, follow "Denied or failed commands" there.
+Mechanics shared with the other skills (locating the KB, shell rules, running a query, reading its output) are in `runtime.md` next to this file. Follow them exactly. When a command is denied or fails where a step names no outcome, follow "Denied or failed commands" there; once step 6.3's export has exited, step 6.7 runs first.
 
 ## Steps
 
@@ -45,23 +45,29 @@ Compare with the file tools only; no shell command reads or compares these files
 
 ### 6. Reload the index
 
-1. Run the query `fulltext` with `analyzer` = the manifest's `fulltext_analyzer`, or `standard-no-stop-words` when the manifest has none. It fails: `index: unavailable — <reason>`, go to step 7.
-2. Build the export command from the manifest's `export.cmd`: replace `{ref}` with `"<commit>"` and `{out}` with `"<import>/kb-export.json.tmp"`, each in double quotes. Run it in the clone root as `cd "<clone>"; <export command>`, allowing up to 10 minutes. It exits non-zero: `index: unavailable — the export failed: <first error line>; the previous index is kept`, go to step 7. The load never reads a file the export is still writing: only a finished export becomes `kb-export.json`.
-3. Only after the export exited 0, check with the file tools that `<import>/kb-export.json.tmp` exists. It does not: `index: unavailable — the export wrote no file; the previous index is kept`, go to step 7. Otherwise, on macOS and Linux, first make it readable for Neo4j: the export honours the session's umask and may have written it for its owner only, and the container's `neo4j` user is neither the file's owner nor in its group:
+Each run exports to its own file, `<import>/kb-export.<run id>.json`, and loads that file, so no run reads or removes another run's export. Two runs at once may both export and load, which is safe (section "Reload" of `runtime.md`, which also holds the run id commands). A `<first error line>` is the command's whole first error line as printed.
+
+1. Draw the run id. Run the run id command of `runtime.md` (section "Reload") for this shell; never choose, change or reuse an id yourself. `<run id>` is the 12 letters or digits it prints, in bash and zsh the ones after the last `kb-export.` of the path it prints. `<import>/kb-export.<run id>.json` is this run's export file. The command is denied: `index: unavailable — the run id command <command> was not allowed: denied; run knowledge-base:setup-operator once to allow it; the previous index is kept`, with `<command>` the command as run, and go to step 7. It fails: `index: unavailable — the run id could not be drawn: <first error line>; the previous index is kept`, and go to step 7.
+2. Run the query `status` again with `kb`, right before the export: another run may have loaded the index in the meantime. Exactly one row, and its `sha` equals `<commit>`: `index: current`, `docs` from the row, go to step 7. It is denied: `index: unavailable — the query status was not allowed: denied; the previous index is kept`, go to step 7. It fails: `index: unavailable — <reason>; the previous index is kept`, go to step 7. Otherwise run the query `fulltext` with `analyzer` = the manifest's `fulltext_analyzer`, or `standard-no-stop-words` when the manifest has none. It is denied: `index: unavailable — the query fulltext was not allowed: denied; the previous index is kept`, go to step 7. It fails: `index: unavailable — <reason>; the previous index is kept`, go to step 7.
+3. Build the export command from the manifest's `export.cmd`: replace `{ref}` with `"<commit>"` and `{out}` with `"<import>/kb-export.<run id>.json"`, each in double quotes. Run it in the clone root as `cd "<clone>"; <export command>`, allowing up to 10 minutes. The load never reads a file an export is still writing: it runs only after this run's own export exited.
+   - It is denied: `index: unavailable — the export was not allowed: denied; the previous index is kept`, go to step 7.
+   - It times out: `index: unavailable — the export did not finish within 10 minutes; the previous index is kept`, go to step 7. The harness moves a timed-out command to the background instead of stopping it, so the export may still write `<import>/kb-export.<run id>.json`: never remove that file; on macOS and Linux setup-operator's sweep clears it later, on Windows the developer removes it by hand.
+   - It exits non-zero: `index: unavailable — the export failed: <first error line>; the previous index is kept`, go to step 6.7.
+
+   From here on, every outcome goes through step 6.7 before step 7: a denial, and a failure the step names no outcome for, end as `index: unavailable — <command> was not allowed: denied; the previous index is kept` or `index: unavailable — <command> failed: <first error line>; the previous index is kept`, with `<command>` the command as run, then step 6.7. A step's own outcome for a denial or failure always comes first.
+4. Only after the export exited 0, check with the file tools that `<import>/kb-export.<run id>.json` exists. It does not, or the check is refused: `index: unavailable — the export wrote no file; the previous index is kept`, go to step 6.7. Then make it readable for Neo4j: the export honours the session's umask and may have written it for its owner only, and the container's `neo4j` user is neither the file's owner nor in its group:
 
    ```
-   chmod 644 "<import>/kb-export.json.tmp"
+   chmod 644 "<import>"/kb-export.????????????.json
    ```
 
-   The permission system denies it or it fails: continue with the move, and remember that the `chmod` was skipped. This is that command's outcome, not a workaround: a project set up before the rule existed (knowledge-base 1.1.5 or older) does not allow it until setup-operator runs again, and the export may already be readable under the session's umask; step 4 tells. On Windows skip it: Windows has no mode bits, and Docker Desktop shares the folder with the container user. Then replace the export file with it, in one line that runs unchanged in bash, zsh and PowerShell:
-
-   ```
-   rm "<import>/kb-export.json"; mv "<import>/kb-export.json.tmp" "<import>/kb-export.json"
-   ```
-
-   The `rm` reports an error when no previous export exists; ignore it. The file tools still find `<import>/kb-export.json.tmp` afterwards: `index: unavailable — the export could not be moved into place; the previous index is kept`, go to step 7.
-4. Run the query `load` with `kb`. It fails: `index: unavailable — the load was refused: <reason>; the previous index is kept`, go to step 7. When step 3 skipped the `chmod` and the reason contains `Cannot open file`, the reason is instead `the export is not readable for Neo4j and chmod was not allowed; run knowledge-base:setup-operator once to add its permission`.
-5. The row's `sha` must equal `<commit>`; otherwise `index: unavailable — the export stamped <sha>, not <commit>`. When it matches: `index: loaded`, `docs` from the row.
+   The `chmod` runs only in bash and zsh on macOS and Linux: skip it in PowerShell on every OS, where `"<import>"/kb-export.????????????.json` splits into two arguments and `chmod` then changes the import folder itself, and skip it on Windows in every shell, Git Bash included. Windows has no mode bits, and Docker Desktop shares the folder with the container user. The `?` pattern matches every run's export file in `<import>`, this run's and any other run's: it changes only their mode to the one every run sets anyway, and it lets setup-operator allow the command exactly, since a permission rule treats `?` as text and only `*` as a wildcard. The permission system denies it: remember that the `chmod` was denied. It fails: remember that it failed, with its first error line. Either way continue with the load, which decides: the export may already be readable under the session's umask. This is that command's outcome, not a workaround.
+5. Run the query `load` with `kb` and `file` = `kb-export.<run id>.json`. It succeeds: go to step 6.6 with its row. It is denied: `index: unavailable — the query load was not allowed: denied; the previous index is kept`, go to step 6.7. It fails: run the query `status` again with `kb`. Exactly one row, and its `sha` equals `<commit>`: another run loaded the same commit while this one loaded; `index: current`, `docs` from the row, go to step 6.7. Any other result, a denial or a failure included, ends as one of these lines, with `<reason>` the load's, then step 6.7:
+   - `<reason>` contains `Cannot open file` and step 6.4's `chmod` was denied: `index: unavailable — the export is not readable for Neo4j and its chmod was not allowed: denied; run knowledge-base:setup-operator once to allow it; the previous index is kept`. setup-operator allows this exact `chmod`.
+   - `<reason>` contains `Cannot open file` and step 6.4's `chmod` failed: `index: unavailable — the export is not readable for Neo4j and its chmod failed: <first error line of the chmod>; the previous index is kept`. No setup-operator run fixes a failure.
+   - Otherwise: `index: unavailable — the load was refused: <reason>; the previous index is kept`.
+6. The load's row's `sha` must equal `<commit>`; otherwise `index: unavailable — the export stamped <sha>, not <commit>`. When it matches: `index: loaded`, `docs` from the row. Go to step 6.7.
+7. Clean up. Remove this run's export file, `rm "<import>/kb-export.<run id>.json"`. Cleanup is attempted, not guaranteed: setup-operator does not allow the `rm`, since a rule for it would admit removing any file, so it prompts, and a session that cannot prompt leaves the file behind; on macOS and Linux setup-operator's sweep removes it once it is older than 30 minutes, on Windows the developer removes it by hand. Whatever the outcome of the `rm`, a denial included, the report stays as it is and does not name it. Then go to step 7.
 
 ### 7. Report
 
@@ -84,7 +90,12 @@ docs: <docs, or "-" when the index is unavailable>
 | Writing a parameter as `-P 'kb => "<kb>"'` | `-P "kb => '<kb>'"` with the escapes of `runtime.md`; Windows PowerShell 5.1 drops a `"` inside an argument, and the query then fails |
 | Loading when `status` already reports `<commit>` | Load only on a different `sha` or an empty store |
 | Running the export against the working tree or a branch name | `{ref}` is the full commit SHA `<commit>` |
-| Loading an export the session's umask left unreadable to others (`Cannot open file /import/kb-export.json for reading`) | On macOS and Linux, `chmod 644` the finished export before moving it into place (step 6.3); never change the session's umask |
-| Stopping, or trying another command, when the `chmod` of step 6.3 is denied | Continue with the move; the load decides, and its failure names the one-time setup-operator run |
+| Loading an export the session's umask left unreadable to others (`Cannot open file /import/kb-export.<run id>.json for reading`) | In bash and zsh on macOS and Linux, run the `chmod` of step 6.4 before the load; never change the session's umask |
+| Stopping, or trying another command, when the `chmod` of step 6.4 is denied or fails | Continue with the load; the load decides |
+| Running the `chmod` in PowerShell, or on Windows | Skip it there (step 6.4); in PowerShell it changes the import folder itself |
+| Writing the `chmod` with `<run id>` or a `*` | Run it exactly as step 6.4 writes it: setup-operator allows only that text |
 | Stopping the caller because Neo4j is down | Report `index: unavailable` with the reason; the caller reads the files |
-| Retrying a refused load or clearing the store to make it pass | Report the refusal; the store and the previous index stay as they are |
+| Retrying a refused load or clearing the store to make it pass | Re-run `status` once (step 6.5); otherwise report the refusal; the store and the previous index stay as they are |
+| Making up `<run id>`, or exporting to, loading or removing a file other than `kb-export.<run id>.json` | Draw the id with the run id command; each run touches only its own export file |
+| Removing the export file after the export timed out | Leave it: a background export may still write it; on macOS and Linux setup-operator's sweep clears it, on Windows the developer removes it by hand |
+| Going straight to step 7 after the export exited, also on a denial | Every outcome after the export exited goes through step 6.7, which removes this run's export file |

@@ -86,4 +86,34 @@ describe.if(hasPython)("merge-settings.py", () => {
     expect(r.out).toBe("error: the settings file is not valid JSON; nothing changed\n");
     expect(readFileSync(settings(), "utf8")).toBe("{ not json");
   });
+
+  test("removes listed entries that exist, says so, and is silent for absent ones", () => {
+    writeFileSync(settings(), JSON.stringify({ permissions: { allow: ["Bash(ls)", "Bash(mkdir x)", "Edit(y)"] } }));
+    const r = merge({ remove: { allow: ["Bash(mkdir x)", "Edit(y)", "Bash(rmdir x)"] }, permissions: { allow: ["Bash(ls)"] } });
+    expect(r.code).toBe(0);
+    expect(r.out).toBe("removed allow Bash(mkdir x)\nremoved allow Edit(y)\nkept allow Bash(ls)\npassword: absent\n");
+    expect(JSON.parse(readFileSync(settings(), "utf8")).permissions).toEqual({ allow: ["Bash(ls)"] });
+  });
+
+  test("refuses a remove that is not an object of string lists, before writing anything", () => {
+    const before = { permissions: { allow: ["Bash(ls)", "a"] } };
+    for (const bad of [{ remove: ["x"] }, { remove: "x" }, { remove: { allow: null } }, { remove: { allow: "Bash(ls)" } }, { remove: { allow: [1] } }]) {
+      writeFileSync(settings(), JSON.stringify(before));
+      const r = merge(bad);
+      expect(r.code, JSON.stringify(bad)).toBe(2);
+      expect(r.out).toStartWith("error: ");
+      expect(r.out).toEndWith("; nothing changed\n");
+      expect(JSON.parse(readFileSync(settings(), "utf8"))).toEqual(before);
+      expect(existsSync(fragment())).toBe(true);
+    }
+  });
+
+  test("refuses a remove key that is not a permission list", () => {
+    const before = { permissions: { allow: ["Bash(ls)"] } };
+    writeFileSync(settings(), JSON.stringify(before));
+    const r = merge({ remove: { ask: ["Bash(ls)"] } });
+    expect(r.code).toBe(2);
+    expect(r.out).toBe("error: remove.ask in the fragment is not a permission list; nothing changed\n");
+    expect(JSON.parse(readFileSync(settings(), "utf8"))).toEqual(before);
+  });
 });

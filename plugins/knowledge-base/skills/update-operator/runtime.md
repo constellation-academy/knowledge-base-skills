@@ -4,7 +4,7 @@ How the `knowledge-base` skills locate the project's KB and run the plugin's que
 
 ## Shell rules
 
-Every command below runs unchanged in bash, zsh and PowerShell.
+Every command below runs unchanged in bash, zsh and PowerShell, except the run id command in "Reload", which has one form per shell, and the `chmod` of update-operator step 6.4. The `chmod` runs only in bash and zsh on macOS and Linux: skip it in PowerShell on every OS, where `"<import>"/kb-export.????????????.json` splits into two arguments and `chmod` then changes the import folder itself, and skip it on Windows in every shell, Git Bash included.
 
 - An environment value is read first, with its own command, and then written into the next command as literal text: `printenv <KEY>` in bash or zsh, `[Environment]::GetEnvironmentVariable('<KEY>')` in PowerShell. Empty output means unset. A command line never contains `$<KEY>`, `$env:<KEY>` or `%<KEY>%`.
 - Read only `KB_PATH`, `NEO4J_SHELL` and `NEO4J_DATABASE`. `NEO4J_USERNAME` and `NEO4J_PASSWORD` are never read, printed or written into a command; `NEO4J_SHELL` passes them on by name.
@@ -16,7 +16,7 @@ Every command below runs unchanged in bash, zsh and PowerShell.
 
 ## Denied or failed commands
 
-When the permission system denies a command, or a command fails where a skill names no outcome for that failure, stop and report the exact command and the reason (the denial, or the first error line). Never change its flags, drop a step, split or merge commands, or substitute another command to get past it. A skill step that names what happens on a failure, such as `index: unavailable` and reading the clone's files, is that step's outcome, not a workaround.
+When the permission system denies a command, or a command fails where a skill names no outcome for that failure, stop and report the exact command and the reason (the denial, or the first error line). Once update-operator's export has exited (its step 6.3), its step 6.7 runs before the stop: it removes the run's export file. Never change its flags, drop a step, split or merge commands, or substitute another command to get past it. A skill step that names what happens on a failure, such as `index: unavailable` and reading the clone's files, is that step's outcome, not a workaround.
 
 ## Locate the KB
 
@@ -65,7 +65,7 @@ Parameters per query:
 | Query | Parameters | Rows |
 |---|---|---|
 | `fulltext` | `analyzer` | none |
-| `load` | `kb` | `{kb, sha, docs}` |
+| `load` | `kb`, `file` | `{kb, sha, docs}`; `file` is the export file's name in `<import>`, `kb-export.<run id>.json` |
 | `status` | `kb` | `{kb, sha, docs}` or `{kb, empty: true}` |
 | `doc` | `kb`, `path` | `{path, type, title, description, status, tags, refs, supersedes, parts, extra}`, or no row |
 | `list` | `kb`, `type` | one row per document, shape as `doc`, ordered by path |
@@ -81,3 +81,21 @@ Parameters per query:
 ### Failures
 
 A query fails when it cannot start or exits non-zero. Its reason is the first line of its error output. A reason that starts with `refusing` comes from the store guard: the store holds another KB or an unstamped graph.
+
+## Reload
+
+Each reload run exports to its own file, `<import>/kb-export.<run id>.json`, and loads it by name, so no run reads or removes another run's export. Two runs at once may both export and load. That is safe: `load.cypher` is one transaction, so concurrent loads either serialise or one is refused by the uniqueness constraint and rolls back, and the graph stays consistent. A run whose load is refused while `status` shows its commit reports `index: current`.
+
+`<run id>`: the run id command's output, drawn once per run. Never choose, type or change an id yourself: two runs that make one up can make up the same one.
+
+Draw the run id. In bash and zsh it prints the path `<import>/kb-export.` followed by 12 random letters and digits, `<run id>`; the file name it draws needs no writable working folder, and nothing stays behind (macOS `mktemp` creates the file and removes it again before it exits, GNU `mktemp` creates nothing):
+
+```
+mktemp -u "<import>/kb-export.XXXXXXXXXXXX"
+```
+
+In PowerShell it prints 12 random hexadecimal characters, `<run id>`:
+
+```
+[guid]::NewGuid().ToString('N').Substring(0,12)
+```

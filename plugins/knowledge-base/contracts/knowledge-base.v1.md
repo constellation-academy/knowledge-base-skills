@@ -19,7 +19,7 @@ This contract binds every knowledge base (KB) that uses the `knowledge-base` plu
 | Neo4j data | `~/.kb/<kb id>/data` |
 | Import folder | `~/.kb/<kb id>/import`, mounted at `/import` in the container |
 | Query files | `~/.kb/<kb id>/import/queries/<name>.cypher` |
-| Export file | `~/.kb/<kb id>/import/kb-export.json` |
+| Export files | `~/.kb/<kb id>/import/kb-export.<run id>.json`, one per reload run; `<run id>` is 12 random letters or digits a command draws once per run. The run's removal of its file after the load is attempted, not guaranteed; on macOS and Linux setup-operator's sweep clears leftovers older than 30 minutes, on Windows the developer removes them by hand |
 | Neo4j settings | `~/.kb/<kb id>/neo4j.env`: APOC, file import, the import folder and the procedure allowlist, passed with `--env-file`; no credentials |
 | Writer worktrees | `~/.kb/<kb id>/worktrees/<name>`, with the writer's message files next to them as `<name>.<file>` |
 | Setup staging | `~/.kb/.incoming` (a clone before its KB id is known) and `~/.kb/setup-fragment.json` (settings to merge); both are removed by the setup |
@@ -59,7 +59,7 @@ Every KB ships `kb-manifest.json` at its KB root. It is read from the read-only 
 - `export` (required): the team's export command.
   - `cmd`: the command line; it contains both placeholders.
   - `placeholders`: exactly `["{ref}", "{out}"]`.
-  - `{ref}` becomes the full commit SHA of `origin/<default_branch>` in the clone; `{out}` becomes the absolute path of a temporary file next to the export file; only after the command exits 0 is it renamed to the export file, so a load never reads a partial export. Each value is substituted in double quotes.
+  - `{ref}` becomes the full commit SHA of `origin/<default_branch>` in the clone; `{out}` becomes the absolute path of the run's own export file in the import folder; the run loads it only after the command exits 0, so a load never reads a partial export. Each value is substituted in double quotes.
   - The command runs in the clone's repository root, in the team's own runtime.
 - `fulltext_analyzer` (optional): the Neo4j full-text analyzer for `kb_fulltext`, e.g. `german`. Absent means `standard-no-stop-words`.
 - `resources` (required): resource name → exactly one of
@@ -123,7 +123,7 @@ The export command writes one JSON object to `{out}`:
 
 ## Loading
 
-- The plugin's load script reads the export file through APOC (`apoc.load.json`) and runs entirely in `cypher-shell`.
+- The plugin's load script reads the export file named by its `file` parameter through APOC (`apoc.load.json`) and runs entirely in `cypher-shell`.
 - The full-text index and the uniqueness constraints are created first, in their own step (`IF NOT EXISTS`), never inside the load transaction.
 - One transaction wipes the KB's graph, loads the export, creates the relationships and stamps `KBIndex`. A failed load keeps the old graph.
 - The load refuses, and changes nothing, when the store holds another KB, when it holds documents without a `KBIndex` stamp or without `kb`, when the export names another KB, or when the export has no documents.
@@ -214,7 +214,8 @@ A machine reader (a script, not a skill) reads KB text through the index without
 ## Freshness
 
 - `update-operator` runs before every read request (content-provider reuses its report for every later fetch or explore in the same request, unless the index was unavailable): `git fetch` in the clone, then a fast-forward to `origin/<default_branch>`.
-- It compares `KBIndex.sha` with the clone's commit. On a mismatch or an empty store it creates the full-text index if missing, runs the export into the export file, and runs the load.
+- It compares `KBIndex.sha` with the clone's commit. On a mismatch or an empty store it creates the full-text index if missing, runs the export into the run's own export file, and loads that file.
+- Each reload run exports to and loads only its own export file, so runs share no file. Right before the export a run checks the index again and reports `index: current` when it already holds the clone's commit. Two runs at once may both export and load. That is safe: the load is one transaction, so concurrent loads either serialise or one is refused by a uniqueness constraint and rolls back, and the graph stays consistent; a run whose load is refused while the index holds the clone's commit reports `index: current`.
 - Offline, it continues on the clone's current commit and says how old that commit is.
 - The plugin's skills call `update-operator`, and so does a machine reader that follows the section "Machine reads", before it runs `kb-fetch`. `update-operator` may return one of the "Locate the KB" stop messages instead of the report block below; a machine reader treats any reply without the report's `commit:` and `index:` lines as "not updated" and does not run `kb-fetch`.
 - Its report is part of this contract; callers parse it, so its four lines never change within a major. `update-operator` returns exactly:

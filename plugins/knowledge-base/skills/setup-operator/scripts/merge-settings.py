@@ -37,6 +37,15 @@ def main(fragment_path, settings_path):
         if not isinstance(permissions_now.get(name, []), list):
             fail(f"permissions.{name} in the settings file is not a list")
 
+    unwanted = fragment.get("remove", {})
+    if not isinstance(unwanted, dict):
+        fail("remove in the fragment is not an object")
+    for name, entries in unwanted.items():
+        if name not in LISTS:
+            fail(f"remove.{name} in the fragment is not a permission list")
+        if not isinstance(entries, list) or not all(isinstance(e, str) for e in entries):
+            fail(f"remove.{name} in the fragment is not a list of strings")
+
     lines = []
     wanted_env = fragment.get("env", {})
     replace = set(fragment.get("replace_env", []))
@@ -55,6 +64,15 @@ def main(fragment_path, settings_path):
                 lines.append(f"conflict env {key}: current {env[key]}, wanted {value}")
             else:
                 lines.append(f"conflict env {key}")
+
+    if unwanted and isinstance(current.get("permissions"), dict):
+        permissions = current["permissions"]
+        for name in LISTS:
+            existing = permissions.get(name, [])
+            for entry in unwanted.get(name, []):
+                if entry in existing:
+                    permissions[name] = existing = [e for e in existing if e != entry]
+                    lines.append(f"removed {name} {entry}")
 
     wanted_permissions = fragment.get("permissions", {})
     if wanted_permissions:
