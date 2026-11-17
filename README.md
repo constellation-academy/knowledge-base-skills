@@ -75,3 +75,7 @@ bun install
 bun test
 claude plugin validate plugins/knowledge-base
 ```
+
+## License
+
+Proprietary, all rights reserved; see [LICENSE](LICENSE).
