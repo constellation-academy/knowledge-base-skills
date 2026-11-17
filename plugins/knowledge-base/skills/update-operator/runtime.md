@@ -4,7 +4,7 @@ How the `knowledge-base` skills locate the project's KB and run the plugin's que
 
 ## Shell rules
 
-Every command below runs unchanged in bash, zsh and PowerShell, except the run id command and the age checks in "Reload lock".
+Every command below runs unchanged in bash, zsh and PowerShell, except the run id command and the age check in "Reload lock", and the `chmod` of update-operator step 6.5, which runs only in bash and zsh.
 
 - An environment value is read first, with its own command, and then written into the next command as literal text: `printenv <KEY>` in bash or zsh, `[Environment]::GetEnvironmentVariable('<KEY>')` in PowerShell. Empty output means unset. A command line never contains `$<KEY>`, `$env:<KEY>` or `%<KEY>%`.
 - Read only `KB_PATH`, `NEO4J_SHELL` and `NEO4J_DATABASE`. `NEO4J_USERNAME` and `NEO4J_PASSWORD` are never read, printed or written into a command; `NEO4J_SHELL` passes them on by name.
@@ -16,7 +16,7 @@ Every command below runs unchanged in bash, zsh and PowerShell, except the run i
 
 ## Denied or failed commands
 
-When the permission system denies a command, or a command fails where a skill names no outcome for that failure, stop and report the exact command and the reason (the denial, or the first error line). Once update-operator holds the reload lock, its step 6.6 runs before the stop: it removes the run's temp file and releases the lock. Never change its flags, drop a step, split or merge commands, or substitute another command to get past it. A skill step that names what happens on a failure, such as `index: unavailable` and reading the clone's files, is that step's outcome, not a workaround.
+When the permission system denies a command, or a command fails where a skill names no outcome for that failure, stop and report the exact command and the reason (the denial, or the first error line). Once update-operator holds the reload lock, its step 6.8 runs before the stop: it removes the run's export file and releases the lock. Never change its flags, drop a step, split or merge commands, or substitute another command to get past it. A skill step that names what happens on a failure, such as `index: unavailable` and reading the clone's files, is that step's outcome, not a workaround.
 
 ## Locate the KB
 
@@ -65,7 +65,7 @@ Parameters per query:
 | Query | Parameters | Rows |
 |---|---|---|
 | `fulltext` | `analyzer` | none |
-| `load` | `kb` | `{kb, sha, docs}` |
+| `load` | `kb`, `file` | `{kb, sha, docs}`; `file` is the export file's name in `<import>`, `kb-export.<run id>.json` |
 | `status` | `kb` | `{kb, sha, docs}` or `{kb, empty: true}` |
 | `doc` | `kb`, `path` | `{path, type, title, description, status, tags, refs, supersedes, parts, extra}`, or no row |
 | `list` | `kb`, `type` | one row per document, shape as `doc`, ordered by path |
@@ -84,61 +84,33 @@ A query fails when it cannot start or exits non-zero. Its reason is the first li
 
 ## Reload lock
 
-Runs on one machine share `<import>` and the export file `kb-export.json`, so only one run at a time may reload the index. The lock is the folder `<import>/reload.lock`. The run that holds it is named by the one folder inside it, its owner folder `<import>/reload.lock/<run id>`. Each run writes its export to its own temp file, `<import>/kb-export.<run id>.json.tmp`.
+Each reload run exports to its own file, `<import>/kb-export.<run id>.json`, and loads it by name, so runs share no file. The lock is the folder `<import>/reload.lock`: it exists while a run reloads, and it only keeps a second run from repeating that work. It is always empty; nothing is ever written into it, so its modification time is the time it was taken. Stale means it was taken more than 30 minutes ago: above the export's 10-minute time limit plus the load.
 
-- `<run id>`: the output of the run id command below, drawn once per run before its first lock command, and again only where update-operator says so. Never choose, type or change an id yourself: two runs that make one up can make up the same one.
-- `<old>`, `<name>`: the name of an owner folder this run found in the lock, as the listing prints it.
-- Nothing is ever written into either folder. A folder's modification time changes when an entry is created or removed in it: the owner folder's age is the time since its run took the lock, and the lock folder's age is the time since an owner folder was last created or removed in it.
+The lock is best effort. Two runs that both find the same stale lock can both remove it and take it again: the second `rmdir` removes the lock the first has just taken, and both reload. A run's release can likewise remove a lock another run took after breaking this run's stale one. Both reload then, which is safe: each loads only its own file, the load is one transaction, and a load that overlaps another load of the same commit either commits the same graph or is refused by a uniqueness constraint, which update-operator reports as `current` once `status` shows the commit. The lock never blocks for good: every lock goes stale after 30 minutes, and an empty stale lock is removed by the next run.
 
-Every lock command runs unchanged in bash, zsh and PowerShell, except the run id command and the two age checks.
+`<run id>`: the run id command's output, drawn once per run. Never choose, type or change an id yourself: two runs that make one up can make up the same one.
 
-Draw the run id. In bash and zsh it prints 12 random letters and digits and creates nothing:
+Draw the run id. In bash and zsh it prints the path `<import>/kb-export.` followed by 12 random letters and digits, `<run id>`; the file name it draws needs no writable working folder, and nothing stays behind (macOS `mktemp` creates the file and removes it again before it exits, GNU `mktemp` creates nothing):
 
 ```
-mktemp -u XXXXXXXXXXXX
+mktemp -u "<import>/kb-export.XXXXXXXXXXXX"
 ```
 
-In PowerShell it prints 12 random hexadecimal characters:
+In PowerShell it prints 12 random hexadecimal characters, `<run id>`:
 
 ```
 [guid]::NewGuid().ToString('N').Substring(0,12)
 ```
 
-Take the lock with two commands. Run the second only after the first succeeded:
+Take the lock:
 
 ```
 mkdir "<import>/reload.lock"
 ```
 
-```
-mkdir "<import>/reload.lock/<run id>"
-```
+`mkdir` succeeds only when the folder did not exist. When it exists, `mkdir` fails with an error that says it exists, in whatever language (in English `File exists` or `already exists`). Any other error, such as `No such file or directory` for a missing `<import>` or `Permission denied`, means the folder could not be created. In bash, zsh, and PowerShell on macOS and Linux (where `mkdir` is the system's own command), creating the folder is atomic. In PowerShell on Windows, `mkdir` is `New-Item -ItemType Directory`, which checks for the folder and then creates it, so two runs that take the lock in the same instant can both succeed and both reload, which is safe as above (unverified on Windows).
 
-`mkdir` succeeds only when the folder did not exist. When it exists, `mkdir` fails with an error that says it exists, in whatever language (in English `File exists` or `already exists`). Any other error, such as `No such file or directory` for a missing `<import>` or `Permission denied`, means the folder could not be created. In bash, zsh, and PowerShell on macOS and Linux (where `mkdir` is the system's own command), creating the folder is atomic. In PowerShell on Windows, `mkdir` is `New-Item -ItemType Directory`, which checks for the folder and then creates it, so two runs that take the lock in the same instant can both succeed: the check after the take, in update-operator, then sends both away. `New-Item -ItemType Directory` also creates missing parent folders (seen in pwsh on macOS, unverified on Windows): on Windows the second `mkdir` then recreates a lock another run removed in the meantime, and the check after the take covers that too, since it lists the lock before the run goes on.
-
-List the lock's owner folders:
-
-```
-ls "<import>/reload.lock"
-```
-
-It prints nothing: the lock has no owner folder. It prints one name or more: the owner folders. An error that says the path does not exist, in whatever language: the lock is gone. In bash and zsh `ls` hides names that start with `.`: a hidden entry, such as the `.DS_Store` file macOS Finder writes, is not listed, but it keeps `rmdir` from removing the folder, which then fails with `Directory not empty`. `ls -A` would show it, but it does not run in PowerShell, where `-A` is an ambiguous parameter of `Get-ChildItem`. In PowerShell on Windows, `ls` is `Get-ChildItem` and prints a table: the names are its `Name` column (seen with PowerShell 7 on macOS; unverified on Windows).
-
-Check the age of the owner folder `<old>`. In bash and zsh:
-
-```
-find "<import>/reload.lock/<old>" -maxdepth 0 -mmin +30
-```
-
-It prints the owner folder's path: the lock is stale. It prints nothing: the lock is fresh. In PowerShell:
-
-```
-(Get-Item "<import>/reload.lock/<old>").LastWriteTime.AddMinutes(30) -lt (Get-Date)
-```
-
-It prints `True`: stale. `False`: fresh.
-
-Check the age of the lock folder itself, for a lock without an owner folder or with more than one. In bash and zsh:
+Check the lock's age. In bash and zsh:
 
 ```
 find "<import>/reload.lock" -maxdepth 0 -mmin +30
@@ -150,30 +122,16 @@ It prints the lock's path: stale. It prints nothing: fresh. In PowerShell:
 (Get-Item "<import>/reload.lock").LastWriteTime.AddMinutes(30) -lt (Get-Date)
 ```
 
-It prints `True`: stale. `False`: fresh. For both age checks, in every shell, an error that says the path does not exist, in whatever language, means the folder is gone: its run released the lock, or another run broke it, in the meantime. Any other failure, or a denial, follows the skill step that runs the check.
+It prints `True`: stale. `False`: fresh. In every shell, an error that says the path does not exist, in whatever language, means the lock was released in the meantime. `find` counts whole minutes: on macOS it calls a lock stale after more than 30 minutes, GNU `find` (Linux, Git Bash) from 31 minutes on. PowerShell compares to the second.
 
-Break a stale lock: remove each owner folder, then the lock. Run each command only after the one before it succeeded:
+The age check reads `<import>` outside the project's working folders. setup-operator's rule `Read(//<kb folder>/**)` allows that read, and with it `find` and `ls` there, without a prompt; the denial of a session without that rule says the command may only search the allowed working directories, and one setup-operator run adds the rule. With `permissions.blockReadsOutsideWorkingDirectories` set, no allow rule lets the read through: the denial says reads outside the working directories are blocked, and the remedy is to add `<kb folder>` as a working directory (`/add-dir`, or `permissions.additionalDirectories`) or to unset that setting (both seen in Claude Code 2.1.326).
 
-```
-rmdir "<import>/reload.lock/<old>"
-```
+Remove the lock, to break a stale one and to release this run's:
 
 ```
 rmdir "<import>/reload.lock"
 ```
 
-Only one run can remove an owner folder: when two runs break the same stale lock, the later `rmdir` of that folder fails with an error that says the folder does not exist. A lock without an owner folder has no such guard: two runs can remove it one after the other, the second removing the lock the first has just taken again. The check after the take, in update-operator, finds that; each run it sends away removes its own owner folder and then runs `rmdir "<import>/reload.lock"`, which succeeds only when the lock is empty, so two runs sent away leave no fresh lock without owner behind.
+`rmdir` removes only an empty folder. An error that says the folder does not exist means another run removed it first. A folder that is not empty, such as one holding the `.DS_Store` file macOS Finder writes, makes it fail with an error that says the folder is not empty, in whatever language (in English `Directory not empty`; PowerShell on macOS and Linux runs the system's `rmdir` and prints the same). In PowerShell on Windows, `rmdir` is `Remove-Item`: on a folder that is not empty it fails in a non-interactive session with an error that it cannot prompt, and asks for confirmation in an interactive one, where confirming removes the folder with its contents (seen in pwsh on macOS, unverified on Windows). Take either error as not empty, and never confirm that question.
 
-Release the lock with two commands. Run the second only after the first succeeded:
-
-```
-rmdir "<import>/reload.lock/<run id>"
-```
-
-```
-rmdir "<import>/reload.lock"
-```
-
-The first fails with an error that says the folder does not exist when another run broke this run's lock and may hold its own: the run then touches nothing else. `rmdir` removes only an empty folder in bash and zsh, so it never removes another run's owner folder with the lock. A folder that is not empty makes it fail with an error that says the folder is not empty, in whatever language (in English `Directory not empty`; PowerShell on macOS and Linux runs the system's `rmdir` and prints the same). In PowerShell on Windows, `rmdir` is `Remove-Item`: on a folder that is not empty it fails in a non-interactive session with an error that it cannot prompt, and asks for confirmation in an interactive one, where confirming removes the folder with its contents; with stdin closed it printed the confirmation, then failed and removed nothing (all seen in pwsh on macOS, unverified on Windows, and unverified whether Claude Code's PowerShell tool is interactive). On Windows, take an error from `Remove-Item` that the item has children, or that it cannot prompt, as the folder is not empty. Never confirm that question.
-
-Stale means the folder was created or last changed more than 30 minutes ago: above the export's 10-minute time limit plus the load. The ownership check, in update-operator, also runs the owner age check on the run's own `<run id>`, so a run that has held the lock for more than 30 minutes stops before its next export, move, `chmod` or load, as if its lock had been taken over. One window remains: a run whose owner folder turns stale after its last ownership check — in the milliseconds before its move or its `chmod`, or during its load — can still be moving or loading while another run breaks the lock, takes it and moves its own export into place. Only a load that itself runs across the 30-minute mark, or an ownership check that passes in the last instant before it, opens that window. `find` counts whole minutes: on macOS it calls a lock stale after more than 30 minutes, GNU `find` (Linux, Git Bash) from 31 minutes on. PowerShell compares to the second.
+`mkdir` and `rmdir` of the lock change a folder outside the project's working folders: a non-prompting session runs them only with both setup-operator's `Bash(…)` rule for the exact command and its `Edit(~/.kb/<kb>/import/reload.lock)` rule; with the `Bash(…)` rule alone Claude Code 2.1.326 denied them as outside the working directories.

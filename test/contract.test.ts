@@ -60,218 +60,157 @@ describe("contract", () => {
   });
 });
 
-describe("update-operator publish step", () => {
+
+describe("update-operator reload", () => {
   const setup = readFileSync(join(PLUGIN, "skills/setup-operator/SKILL.md"), "utf8");
+  const runtime = readFileSync(join(PLUGIN, "skills/update-operator/runtime.md"), "utf8");
   const readme = readFileSync(join(PLUGIN, "../../README.md"), "utf8");
-  const start = updater.indexOf("\n3. Only after the export exited 0");
-  const step = updater.slice(start, updater.indexOf("\n4. ", start));
-  const load = updater.slice(updater.indexOf("\n4. ", start), updater.indexOf("\n5. The row's `sha`"));
-  const blocks = (s: string) => [...s.matchAll(/```\n([\s\S]*?)```/g)].flatMap((m) => m[1].trim().split(/;\s*/));
-  const CHMOD = 'chmod 644 "<import>/kb-export.json"';
-  const MV = 'mv "<import>/kb-export.<run id>.json.tmp" "<import>/kb-export.json"';
-
-  test("moves the run's own export into place, then makes the export file readable before the load", () => {
-    expect(blocks(step)).toEqual(['rm "<import>/kb-export.json"', MV]);
-    expect(blocks(load)).toEqual([CHMOD]);
-    const own = load.indexOf("ownership check");
-    expect(own).toBeGreaterThan(-1);
-    expect(load.indexOf(CHMOD)).toBeGreaterThan(own);
-    expect(load.indexOf("run the query `load`")).toBeGreaterThan(load.indexOf(CHMOD));
-  });
-
-  test("a denied or failed chmod is not fatal: the load decides", () => {
-    const outcome = load.slice(load.indexOf(CHMOD), load.indexOf("run the query `load`"));
-    expect(outcome).toMatch(/denies it or it fails: continue with the load/i);
-    expect(outcome).not.toMatch(/It fails: `index: unavailable/);
-  });
-
-  test("a load that cannot open the export after a skipped chmod names the cause and the one-time setup migration", () => {
-    expect(load).toContain("Cannot open file");
-    expect(load).toContain("run knowledge-base:setup-operator once");
-  });
-
-  test("setup-operator allows the chmod exactly and has no wildcard chmod, mv or find rule", () => {
-    const from = setup.indexOf("### Allow rules");
-    const rules = setup.slice(from, setup.indexOf("\n## 5.", from));
-    expect(rules).toContain(`Bash(${CHMOD})`);
-    expect(rules).toContain('Bash(rm "<import>/kb-export.json")');
-    expect(rules).not.toMatch(/Bash\(chmod [^)]*\*/);
-    expect(rules).not.toContain("Bash(mv ");
-    expect(rules).not.toContain("Bash(find ");
-  });
-
-  test("the move and the temp removal are granted only to setup's one load session, next to the export", () => {
-    const grant = setup.slice(setup.indexOf("1. **Load.**"), setup.indexOf("2. **Full-text index"));
-    expect(grant).toContain("'Bash(mv \"<import>/kb-export.*.json.tmp\" \"<import>/kb-export.json\")'");
-    expect(grant).toContain("'Bash(rm \"<import>/kb-export.*.json.tmp\")'");
-    expect(grant).toContain("'Bash(<export command>)'");
-  });
-
-  test("README's accepted risk lists exactly the rules wider than literal that remain", () => {
-    const risk = readme.slice(readme.indexOf("Accepted risk"), readme.indexOf("\n## Local Neo4j"));
-    expect(risk).toContain('mkdir "<import>/reload.lock/*"');
-    expect(risk).toContain('rmdir "<import>/reload.lock/*"');
-    expect(risk).toContain("cypher-shell");
-    for (const gone of ["chmod", "find", "Bash(mv"]) expect(risk).not.toContain(gone);
-  });
-
-  test("leftover temp exports are cleared by setup-operator only while no reload lock exists", () => {
-    expect(setup).toContain('"<import>/kb-export.<id>.json.tmp"');
-    expect(setup).toContain('only when `ls "<import>/reload.lock"` says the path does not exist');
-    expect(readme).toMatch(/leftover temp export/i);
-  });
-
-  test("no skill or contract names the shared temp file any more", () => {
-    const contractText = readFileSync(join(PLUGIN, "contracts/knowledge-base.v1.md"), "utf8");
-    for (const t of [updater, setup, contractText]) expect(t).not.toContain("kb-export.json.tmp");
-    expect(setup).toContain('`{out}` by `"<import>/kb-export.*.json.tmp"`');
-  });
-});
-
-describe("update-operator reload lock", () => {
+  const loadCypher = readFileSync(join(PLUGIN, "cypher/load.cypher"), "utf8");
   const reload = updater.slice(updater.indexOf("\n### 6. Reload the index"), updater.indexOf("\n### 7. Report"));
-  const firstStep = "\n1. Run the query `status` again";
-  const beforeFirst = reload.slice(0, reload.indexOf(firstStep));
+  const firstStep = "\n1. Draw the run id.";
+  const intro = reload.slice(0, reload.indexOf(firstStep));
   const stepOf = (n: number) => {
-    const from = reload.indexOf(n === 1 ? firstStep : `\n${n}. `, reload.indexOf(firstStep));
-    return reload.slice(from, n === 6 ? undefined : reload.indexOf(`\n${n + 1}. `, from + 1));
+    const from = reload.indexOf(`\n${n}. `, reload.indexOf(firstStep));
+    const next = reload.indexOf(`\n${n + 1}. `, from + 1);
+    return reload.slice(from, next < 0 ? undefined : next);
   };
+  const rules = setup.slice(setup.indexOf("### Allow rules"), setup.indexOf("\n## 5.", setup.indexOf("### Allow rules")));
+  const ruleBlock = rules.slice(rules.indexOf("```\n") + 4, rules.indexOf("```", rules.indexOf("```\n") + 4));
+  const CHMOD = 'chmod 644 "<import>"/kb-export.????????????.json';
+  const RM = 'rm "<import>/kb-export.<run id>.json"';
   const HINT = "run knowledge-base:setup-operator once to allow the reload lock";
+  const BUSY = "`index: unavailable — another run is reloading the index; the previous index is kept`";
 
-  test("takes the lock before step 6.1, with the commands of runtime.md", () => {
-    expect(reload.indexOf(firstStep)).toBeGreaterThan(0);
-    expect(beforeFirst).toContain('section "Reload lock"');
-    expect(beforeFirst).toContain("`index: unavailable — another run is reloading the index; the previous index is kept`");
+  test("load.cypher loads the file named by the parameter $file, never a fixed export file", () => {
+    expect(loadCypher).toContain("CALL apoc.load.json($file) YIELD value");
+    expect(loadCypher).not.toContain("kb-export.json");
+    expect(section(runtime, "## Run a query")).toMatch(/\| `load` \| `kb`, `file` \|/);
   });
 
-  test("the run id comes from the run id command, never from the model", () => {
-    expect(beforeFirst).toContain("run id command");
-    expect(beforeFirst).toMatch(/never choose/i);
-    expect(beforeFirst).toContain("draw a new `<run id>`");
-  });
-
-  test("every command of steps 6.1 to 6.4 names its denial and routes it through step 6.6", () => {
-    expect(beforeFirst).toContain('a denial or a failure the step does not name, after the take, goes through step 6.6 before "Denied or failed commands" applies');
-    for (const n of [1, 2, 3, 4, 5]) expect(stepOf(n)).not.toContain("go to step 7");
-    for (const n of [1, 2, 3, 4]) {
-      const s = stepOf(n);
-      const denials = [...s.matchAll(/[^.:]*\bis denied\b[^\n]*/g)].map((m) => m[0]);
-      expect(denials.length).toBeGreaterThan(0);
-      for (const d of denials) expect(d).toMatch(/step 6\.6|continue with the load/);
+  test("no skill, runtime or contract names a shared export file, a temp file, a move or an owner folder", () => {
+    for (const t of [updater, runtime, contract]) {
+      expect(t).not.toContain("kb-export.json");
+      expect(t).not.toContain(".json.tmp");
+      expect(t).not.toMatch(/owner folder|ownership check|taken over|`mv /i);
     }
-    expect(stepOf(2)).toContain("`index: unavailable — the export was not allowed: denied; the previous index is kept`");
-    expect(stepOf(2)).toContain("times out");
-    expect(stepOf(3)).toContain("`index: unavailable — the export could not be moved into place: denied; the previous index is kept`");
-    expect(stepOf(3)).toMatch(/listing of `<import>` is denied/);
-    expect(stepOf(4)).toContain("ownership check");
-    expect(reload).toMatch(/\n6\. [^\n]*release/i);
+    expect(setup).not.toMatch(/owner folder|reload\.lock\/\*/);
   });
 
-  test("a lock without owner, or with more than one, is aged by the lock folder and broken when stale", () => {
-    expect(beforeFirst).toContain("lock age check");
-    expect(beforeFirst).toMatch(/no name, or more than one name/i);
-    expect(beforeFirst).toContain('`rmdir "<import>/reload.lock/<name>"`');
+  test("step 6 lists its steps in order: run id, take, status, export, chmod, load, sha, clean up and release", () => {
+    const heads = ["\n1. Draw the run id.", "\n2. Take the lock.", "\n3. Run the query `status` again", "\n4. Build the export command", "\n5. Only after the export exited 0", "\n6. Run the query `load`", "\n7. The load's row's `sha`", "\n8. Clean up and release"];
+    let at = -1;
+    for (const h of heads) {
+      const i = reload.indexOf(h);
+      expect(i, h).toBeGreaterThan(at);
+      at = i;
+    }
   });
 
-  test("a second mkdir that fails removes the run's own ownerless lock", () => {
-    const second = beforeFirst.slice(beforeFirst.indexOf('`mkdir "<import>/reload.lock/<run id>"`'));
-    expect(second.slice(0, 600)).toContain('`rmdir "<import>/reload.lock"`');
+  test("the run id comes from its command and names the run's own export file", () => {
+    expect(stepOf(1)).toContain('section "Reload lock"');
+    expect(stepOf(1)).toMatch(/never choose/i);
+    expect(stepOf(1)).toContain("`<import>/kb-export.<run id>.json`");
+    expect(stepOf(4)).toContain('`{out}` with `"<import>/kb-export.<run id>.json"`');
   });
 
-  test("after every successful take the lock must list exactly this run's id", () => {
-    expect(beforeFirst).toContain("exactly `<run id>`");
+  test("the lock is best effort: a fresh lock is busy, a stale one is removed and taken once more, a lost race is harmless", () => {
+    expect(intro).toContain(`- Busy: ${BUSY}`);
+    expect(intro).toContain(`- Not allowed: \`index: unavailable — the reload lock command <command> was not allowed: denied; ${HINT}; the previous index is kept\``);
+    const take = stepOf(2);
+    expect(take).toContain('`mkdir "<import>/reload.lock"`');
+    expect(take).toContain("lock age check");
+    expect(take).toContain('`rmdir "<import>/reload.lock"`');
+    expect(take).toMatch(/take once more/i);
+    expect(take).toMatch(/only once/i);
+    expect(take).toMatch(/Fresh: Busy/);
+    expect(take).toContain("cannot be cleared");
+    expect(take).toContain("could not be created");
+    expect(take).toContain("could not be checked");
+    expect(section(runtime, "## Reload lock")).toMatch(/both reload[^\n]*safe|safe[^\n]*both reload/i);
   });
 
-  test("a lock that cannot be cleared or created, and a denied lock, have their own reasons", () => {
-    expect(beforeFirst).toContain("cannot be cleared");
-    expect(beforeFirst).toContain("remove that folder by hand");
-    expect(beforeFirst).toContain("`index: unavailable — the reload lock could not be created: <first error line>; the previous index is kept`");
-    expect(beforeFirst).toContain(`${HINT}; the previous index is kept`);
+  test("after the take every outcome goes through step 6.8, never straight to step 7", () => {
+    expect(stepOf(2)).toMatch(/From here on, every outcome[^\n]*step 6\.8/);
+    for (const n of [3, 4, 5, 6, 7]) expect(stepOf(n), `step 6.${n}`).not.toContain("go to step 7");
+    for (const n of [3, 4, 6]) {
+      for (const d of [...stepOf(n).matchAll(/[^.:]*\bis denied\b[^\n]*/g)].map((m) => m[0])) expect(d).toMatch(/step 6\.8|continue/);
+    }
+    expect(runtime).toContain("step 6.8");
   });
 
-  test("a denied lock command never reloads, and no run reloads without the lock", () => {
-    expect(beforeFirst).not.toContain("without the lock: skip");
-    expect(beforeFirst).not.toContain("1.2.4");
-    expect(beforeFirst).not.toContain(`the previous index is kept; ${HINT}`);
-    expect(beforeFirst).toContain("- Not allowed: `index: unavailable — the reload lock command <command> was not allowed: denied; " + HINT + "; the previous index is kept`");
-    expect(updater).toContain("only after one setup-operator run");
-    expect(section(contract, "## Freshness")).toContain("only after one setup-operator run");
-    expect(readFileSync(join(PLUGIN, "../../README.md"), "utf8")).toContain("only after one setup-operator run");
+  test("step 6.3 re-runs status after the take and ends current when another run loaded the commit", () => {
+    expect(stepOf(3)).toContain("`index: current`");
+    expect(stepOf(3)).toContain("go to step 6.8");
   });
 
-  test("the ownership check also ages this run's own owner folder; stale means taken over", () => {
-    const own = beforeFirst.slice(beforeFirst.indexOf("**The ownership check**"));
-    expect(own).toContain("owner age check of `<run id>`");
-    expect(own).toMatch(/Stale[^\n]*the reload lock was taken over/);
+  test("the chmod is the exact ? pattern, and its denial or failure lets the load decide", () => {
+    const s = stepOf(5);
+    expect(s).toContain("```\n   " + CHMOD + "\n   ```");
+    expect(s).toMatch(/denies it or it fails: continue with the load/i);
   });
 
-  test("a lost race at the lock's removal lists once more instead of reporting it uncleared", () => {
-    const remove = beforeFirst.slice(beforeFirst.indexOf("**Remove the lock.**"), beforeFirst.indexOf("**Take once more.**"));
-    expect(remove).toMatch(/not empty/);
-    expect(remove).toContain("list it once more");
-    expect(remove).toMatch(/names? [^\n]*Busy/);
-    expect(remove).toMatch(/no name[^\n]*Uncleared/);
+  test("the load reads the run's own file; a refused load re-runs status and is current when exactly the commit is loaded", () => {
+    const s = stepOf(6);
+    expect(s).toContain("`file` = `kb-export.<run id>.json`");
+    expect(s).toContain("Cannot open file");
+    expect(s).toMatch(/run the query `status` again/i);
+    expect(s).toMatch(/exactly one row[^\n]*`<commit>`[^\n]*`index: current`/i);
+    expect(s).toContain("`index: unavailable — the load was refused: <reason>; the previous index is kept`");
   });
 
-  test("a run sent away by the check after the take also tries to remove the lock, so it leaves no fresh ownerless lock", () => {
-    const check = beforeFirst.slice(beforeFirst.indexOf("**Check the take.**"), beforeFirst.indexOf("**Inspect the lock.**"));
-    const own = check.indexOf('`rmdir "<import>/reload.lock/<run id>"`');
-    expect(own).toBeGreaterThan(-1);
-    expect(check.indexOf('`rmdir "<import>/reload.lock"`')).toBeGreaterThan(own);
+  test("clean up removes only the run's own file, then releases the lock, whatever their outcomes", () => {
+    const s = stepOf(8);
+    expect(s).toContain("`" + RM + "`");
+    expect(s.indexOf('`rmdir "<import>/reload.lock"`')).toBeGreaterThan(s.indexOf(RM));
+    expect(s).toMatch(/whatever/i);
   });
 
-  test("a temp export gone at the move has its own outcome", () => {
-    expect(reload).toContain("`index: unavailable — the export file disappeared before the move; the previous index is kept`");
+  test("setup allows the lock exactly and nothing wider for the reload", () => {
+    for (const r of [
+      `Bash(${CHMOD})`,
+      'Bash(mktemp -u "<import>/kb-export.XXXXXXXXXXXX")',
+      'Bash(mkdir "<import>/reload.lock")',
+      'Bash(rmdir "<import>/reload.lock")',
+      "Edit(~/.kb/<kb>/import/reload.lock)",
+    ]) expect(ruleBlock).toContain(r);
+    for (const line of ruleBlock.split("\n").filter((l) => /kb-export|reload\.lock|mktemp/.test(l))) expect(line).not.toContain("*");
+    expect(ruleBlock).not.toMatch(/Bash\((rm|mv|find) /);
   });
 
-  test("the listing after the move names the run's own temp file", () => {
-    const move = stepOf(3);
-    expect(move).toContain("`kb-export.<run id>.json.tmp` is listed");
-    expect(move).toContain("`kb-export.json` is listed and `kb-export.<run id>.json.tmp` is not");
+  test("setup grants its load session only the export, and the run's file removal prompts", () => {
+    const grant = setup.slice(setup.indexOf("1. **Load.**"), setup.indexOf("2. **Full-text index"));
+    expect(grant).toContain("'Bash(<export command>)'");
+    expect(grant).not.toMatch(/'Bash\((mv|rm) /);
+    expect(grant).toContain('`{out}` by `"<import>/kb-export.*.json"`');
   });
 
-  test("step 6.1 re-runs status and stops with current when another run loaded the commit", () => {
-    const first = stepOf(1);
-    expect(first).toContain("`index: current`");
-    expect(first).toContain("go to step 6.6");
+  test("setup removes only leftover exports older than the stale limit", () => {
+    expect(setup).toContain('find "<import>" -maxdepth 1 -name "kb-export.*.json" -mmin +30 -delete');
+    expect(setup).toContain('find "<import>" -maxdepth 1 -name "*.json.tmp" -mmin +30 -delete');
+    expect(setup).not.toContain('`ls "<import>/reload.lock"`');
   });
 
-  test("the run checks it still owns the lock before the export, the move and the load", () => {
-    const exportStep = stepOf(2);
-    const move = reload.slice(reload.indexOf("\n3. ", reload.indexOf(firstStep)), reload.indexOf('rm "<import>/kb-export.json"; mv'));
-    for (const s of [exportStep, move, stepOf(4)]) expect(s).toContain("ownership check");
-    expect(exportStep).toContain('`{out}` with `"<import>/kb-export.<run id>.json.tmp"`');
-    expect(reload).toContain("`index: unavailable — the reload lock was taken over; the previous index is kept`");
+  test("README lists the reload's rules, what prompts, the leftovers and the rules an earlier setup left", () => {
+    expect(readme).toContain(CHMOD);
+    expect(readme).toContain(RM);
+    expect(readme).not.toContain("reload.lock/*");
+    expect(readme).toMatch(/blockReadsOutsideWorkingDirectories/);
+    expect(readme).toContain('Bash(mv "<import>/kb-export.json.tmp" "<import>/kb-export.json")');
   });
 
-  test("a failed run removes its own temp file, and the release touches nothing else when its owner folder is gone", () => {
-    const release = stepOf(6);
-    expect(release).toContain('`rm "<import>/kb-export.<run id>.json.tmp"`');
-    expect(release).toContain('`rmdir "<import>/reload.lock/<run id>"`');
-    expect(release).toContain("touch nothing else");
-  });
-
-  test("a stale lock with one owner is broken by removing its owner folder, so only one run can break it", () => {
-    expect(beforeFirst).toContain('`rmdir "<import>/reload.lock/<old>"`');
-    expect(beforeFirst).toContain("`ls \"<import>/reload.lock\"`");
-  });
-
-  test("the contract names the lock, its owner folder and the run's temp file in the local layout", () => {
+  test("the contract names the per-run export file and the lock in the local layout and in Freshness", () => {
     const layout = section(contract, "## Local layout");
+    expect(layout).toContain("`~/.kb/<kb id>/import/kb-export.<run id>.json`");
     expect(layout).toContain("`~/.kb/<kb id>/import/reload.lock`");
-    expect(layout).toContain("`<run id>`");
-    expect(layout).toContain("`~/.kb/<kb id>/import/kb-export.<run id>.json.tmp`");
-  });
-
-  test("the contract's Freshness names every lock outcome the skill defines", () => {
     const freshness = section(contract, "## Freshness");
     expect(freshness).toContain("more than 30 minutes");
-    expect(freshness).toContain("taken over");
-    expect(freshness).toContain("more than one owner folder");
-    expect(freshness).toContain("cannot be cleared");
-    expect(freshness).toContain("could not be created");
     expect(freshness).toContain(HINT);
-    expect(freshness).not.toContain("without the lock only when no lock exists");
-    expect(freshness).not.toMatch(/Only one run per KB reloads at a time:/);
+    expect(freshness).toMatch(/own export file/);
+  });
+
+  test("a denied age check names the remedy that works, not setup-operator alone", () => {
+    const lock = section(runtime, "## Reload lock");
+    expect(lock).toContain("permissions.blockReadsOutsideWorkingDirectories");
+    expect(lock).toContain("/add-dir");
   });
 });

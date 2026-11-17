@@ -19,9 +19,8 @@ This contract binds every knowledge base (KB) that uses the `knowledge-base` plu
 | Neo4j data | `~/.kb/<kb id>/data` |
 | Import folder | `~/.kb/<kb id>/import`, mounted at `/import` in the container |
 | Query files | `~/.kb/<kb id>/import/queries/<name>.cypher` |
-| Export file | `~/.kb/<kb id>/import/kb-export.json` |
-| Export temp file | `~/.kb/<kb id>/import/kb-export.<run id>.json.tmp`, one per run, the export until it is moved to the export file |
-| Reload lock | `~/.kb/<kb id>/import/reload.lock`, a folder that exists while one run reloads the index; it holds only that run's empty owner folder `<run id>`, a random id a command draws once per run |
+| Export files | `~/.kb/<kb id>/import/kb-export.<run id>.json`, one per reload run, removed by that run after its load; `<run id>` is 12 random letters or digits a command draws once per run |
+| Reload lock | `~/.kb/<kb id>/import/reload.lock`, an empty folder that exists while a run reloads the index |
 | Neo4j settings | `~/.kb/<kb id>/neo4j.env`: APOC, file import, the import folder and the procedure allowlist, passed with `--env-file`; no credentials |
 | Writer worktrees | `~/.kb/<kb id>/worktrees/<name>`, with the writer's message files next to them as `<name>.<file>` |
 | Setup staging | `~/.kb/.incoming` (a clone before its KB id is known) and `~/.kb/setup-fragment.json` (settings to merge); both are removed by the setup |
@@ -61,7 +60,7 @@ Every KB ships `kb-manifest.json` at its KB root. It is read from the read-only 
 - `export` (required): the team's export command.
   - `cmd`: the command line; it contains both placeholders.
   - `placeholders`: exactly `["{ref}", "{out}"]`.
-  - `{ref}` becomes the full commit SHA of `origin/<default_branch>` in the clone; `{out}` becomes the absolute path of a temporary file next to the export file; only after the command exits 0 is it renamed to the export file, so a load never reads a partial export. Each value is substituted in double quotes.
+  - `{ref}` becomes the full commit SHA of `origin/<default_branch>` in the clone; `{out}` becomes the absolute path of the run's own export file in the import folder; the run loads it only after the command exits 0, so a load never reads a partial export. Each value is substituted in double quotes.
   - The command runs in the clone's repository root, in the team's own runtime.
 - `fulltext_analyzer` (optional): the Neo4j full-text analyzer for `kb_fulltext`, e.g. `german`. Absent means `standard-no-stop-words`.
 - `resources` (required): resource name → exactly one of
@@ -125,7 +124,7 @@ The export command writes one JSON object to `{out}`:
 
 ## Loading
 
-- The plugin's load script reads the export file through APOC (`apoc.load.json`) and runs entirely in `cypher-shell`.
+- The plugin's load script reads the export file named by its `file` parameter through APOC (`apoc.load.json`) and runs entirely in `cypher-shell`.
 - The full-text index and the uniqueness constraints are created first, in their own step (`IF NOT EXISTS`), never inside the load transaction.
 - One transaction wipes the KB's graph, loads the export, creates the relationships and stamps `KBIndex`. A failed load keeps the old graph.
 - The load refuses, and changes nothing, when the store holds another KB, when it holds documents without a `KBIndex` stamp or without `kb`, when the export names another KB, or when the export has no documents.
@@ -216,8 +215,8 @@ A machine reader (a script, not a skill) reads KB text through the index without
 ## Freshness
 
 - `update-operator` runs before every read request (content-provider reuses its report for every later fetch or explore in the same request, unless the index was unavailable): `git fetch` in the clone, then a fast-forward to `origin/<default_branch>`.
-- It compares `KBIndex.sha` with the clone's commit. On a mismatch or an empty store it creates the full-text index if missing, runs the export into the export file, and runs the load.
-- One run per KB reloads at a time: a run holds the reload lock from before the full-text index until after the load, and exports to its own temp file. No run reloads without the lock. A run whose lock command is denied reports `index: unavailable` with a reason that ends `run knowledge-base:setup-operator once to allow the reload lock; the previous index is kept`: after an upgrade to 1.2.5, a session that cannot prompt reloads the index only after one setup-operator run. A run that finds a lock that is fresh, meaning its owner folder was created 30 minutes ago or less, or, for a lock without an owner folder or with more than one owner folder, the lock folder last changed 30 minutes ago or less, does not reload and reports `index: unavailable`, keeping the previous index. A lock that changed more than 30 minutes ago, above the export's 10-minute time limit plus the load, is stale: a run removes its owner folders, then the lock, and takes it again. After every take the lock must hold exactly the taking run's owner folder; otherwise that run removes its own owner folder and does not reload. Before its export, its move, its `chmod` and its load, a run checks that the lock holds exactly its own owner folder and that this folder is not stale; a run whose lock was taken over, or has outlived the stale limit, reports `index: unavailable` with the reason that the reload lock was taken over, keeps the previous index, and touches neither the export file nor the new holder's lock. Only a load that runs across the stale limit, or a check passed in the instant before it, can still overlap another run's move or load. A run sent away after a take also removes the lock when it is empty. A lock that could not be created or checked, or that cannot be cleared, ends as `index: unavailable` with that reason; one that cannot be cleared names the folder to remove by hand. A stale lock that cannot be removed because another run has just taken it is busy, not uncleared. Every outcome after the take, a denial included, removes the run's temp file and releases its lock before the report.
+- It compares `KBIndex.sha` with the clone's commit. On a mismatch or an empty store it creates the full-text index if missing, runs the export into the run's own export file, and loads that file.
+- Each reload run exports to and loads only its own export file, so runs share no file. The reload lock keeps a second run from repeating a reload under way, best effort: a run that finds the lock taken 30 minutes ago or less does not reload and reports `index: unavailable`, keeping the previous index; a lock taken more than 30 minutes ago, above the export's 10-minute time limit plus the load, is stale, and a run removes it and takes it once more. Two runs can still reload at once, after a stale lock or on Windows; that is safe, since the load is one transaction and the uniqueness constraints refuse a duplicate, and a run whose load is refused while the index already holds the clone's commit reports `index: current`. After the take a run checks the index again and reports `index: current` when another run loaded the commit. Every outcome after the take removes the run's export file and releases the lock before the report. A run whose lock command is denied reports `index: unavailable` with a reason that ends `run knowledge-base:setup-operator once to allow the reload lock; the previous index is kept`.
 - Offline, it continues on the clone's current commit and says how old that commit is.
 - The plugin's skills call `update-operator`, and so does a machine reader that follows the section "Machine reads", before it runs `kb-fetch`. `update-operator` may return one of the "Locate the KB" stop messages instead of the report block below; a machine reader treats any reply without the report's `commit:` and `index:` lines as "not updated" and does not run `kb-fetch`.
 - Its report is part of this contract; callers parse it, so its four lines never change within a major. `update-operator` returns exactly:
