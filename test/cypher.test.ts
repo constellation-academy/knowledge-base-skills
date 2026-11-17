@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -139,7 +140,8 @@ const plain = (r: Run): string[][] => {
     .map((l) => l.split(", "));
 };
 
-const RUN_ID = "aaaaaaaaaaaa";
+const newRunId = () => randomBytes(6).toString("hex");
+let RUN_ID = newRunId();
 const runFile = (id = RUN_ID) => `kb-export.${id}.json`;
 
 const writeExport = (e: unknown, id = RUN_ID) => {
@@ -151,6 +153,7 @@ const writeExport = (e: unknown, id = RUN_ID) => {
 const loadFile = (id = RUN_ID, kb = "t") => query("load", { kb, file: runFile(id) });
 
 const load = async (e: unknown, kb = "t"): Promise<Run> => {
+  RUN_ID = newRunId();
   writeExport(e);
   return loadFile(RUN_ID, kb);
 };
@@ -202,6 +205,7 @@ afterAll(() => {
 });
 
 beforeEach(async () => {
+  RUN_ID = newRunId();
   await cypher("MATCH (n) DETACH DELETE n;");
 });
 
@@ -242,9 +246,10 @@ describe("chmod and load of update-operator step 6", () => {
   });
 
   test("two runs load their own files at once: one KBIndex, no duplicate, the commit stamped", async () => {
-    writeExport(sample(), "aaaaaaaaaaaa");
-    writeExport(sample(), "bbbbbbbbbbbb");
-    const [a, b] = await Promise.all([loadFile("aaaaaaaaaaaa"), loadFile("bbbbbbbbbbbb")]);
+    const [first, second] = [newRunId(), newRunId()];
+    writeExport(sample(), first);
+    writeExport(sample(), second);
+    const [a, b] = await Promise.all([loadFile(first), loadFile(second)]);
     expect([a.code, b.code]).toContain(0);
     expect(rows(await query("status", { kb: "t" }))).toEqual([{ kb: "t", sha: "abc123", docs: 5 }]);
   });
