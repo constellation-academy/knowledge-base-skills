@@ -231,7 +231,7 @@ describe("chmod and load of update-operator step 6", () => {
     expect(rows(await loadFile())).toEqual([{ kb: "t", sha: "abc123", docs: 5 }]);
   });
 
-  test("chmod denied, umask 077: the load fails with the error step 6.6 maps to the chmod", async () => {
+  test("chmod denied, umask 077: the load fails with the error step 6.5 maps to the chmod", async () => {
     exportUnder("077");
     const r = await loadFile();
     expect(r.code).not.toBe(0);

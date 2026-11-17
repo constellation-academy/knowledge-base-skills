@@ -86,4 +86,12 @@ describe.if(hasPython)("merge-settings.py", () => {
     expect(r.out).toBe("error: the settings file is not valid JSON; nothing changed\n");
     expect(readFileSync(settings(), "utf8")).toBe("{ not json");
   });
+
+  test("removes listed entries that exist, says so, and is silent for absent ones", () => {
+    writeFileSync(settings(), JSON.stringify({ permissions: { allow: ["Bash(ls)", "Bash(mkdir x)", "Edit(y)"] } }));
+    const r = merge({ remove: { allow: ["Bash(mkdir x)", "Edit(y)", "Bash(rmdir x)"] }, permissions: { allow: ["Bash(ls)"] } });
+    expect(r.code).toBe(0);
+    expect(r.out).toBe("removed allow Bash(mkdir x)\nremoved allow Edit(y)\nkept allow Bash(ls)\npassword: absent\n");
+    expect(JSON.parse(readFileSync(settings(), "utf8")).permissions).toEqual({ allow: ["Bash(ls)"] });
+  });
 });

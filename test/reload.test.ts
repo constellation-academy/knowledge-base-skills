@@ -1,16 +1,17 @@
 import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const PLUGIN = join(import.meta.dir, "../plugins/knowledge-base");
 const runtime = await Bun.file(join(PLUGIN, "skills/update-operator/runtime.md")).text();
 const updater = await Bun.file(join(PLUGIN, "skills/update-operator/SKILL.md")).text();
+const setup = await Bun.file(join(PLUGIN, "skills/setup-operator/SKILL.md")).text();
 const PWSH = Bun.which("pwsh");
 setDefaultTimeout(60_000);
 
-const lockSection = (): string => {
-  const start = runtime.indexOf("\n## Reload lock\n");
+const reloadSection = (): string => {
+  const start = runtime.indexOf("\n## Reload\n");
   if (start < 0) return "";
   const rest = runtime.slice(start + 1);
   const next = rest.indexOf("\n## ", 3);
@@ -19,17 +20,12 @@ const lockSection = (): string => {
 
 const blocks = (text: string) => [...text.matchAll(/```\n([\s\S]*?)```/g)].map((m) => m[1].trim());
 
-const lockCommands = () => {
-  const b = blocks(lockSection());
+const idCommands = () => {
+  const b = blocks(reloadSection());
   const pick = (exact: string) => b.find((x) => x === exact) ?? "";
-  const pickPrefix = (prefix: string) => b.find((x) => x.startsWith(prefix)) ?? "";
   return {
     idSh: pick('mktemp -u "<import>/kb-export.XXXXXXXXXXXX"'),
     idPs: pick("[guid]::NewGuid().ToString('N').Substring(0,12)"),
-    take: pick('mkdir "<import>/reload.lock"'),
-    ageSh: pickPrefix('find "<import>/reload.lock" '),
-    agePs: pickPrefix('(Get-Item "<import>/reload.lock")'),
-    remove: pick('rmdir "<import>/reload.lock"'),
   };
 };
 
@@ -40,8 +36,9 @@ const runFileCommands = () => {
   return { chmod: b.find((x) => x.startsWith("chmod ")) ?? "", rm: rm ? rm[1] : "" };
 };
 
+const sweepCommands = () => blocks(setup.slice(setup.indexOf("1. **Load.**"), setup.indexOf("2. **Full-text index"))).filter((c) => c.startsWith("find "));
+
 let IMPORT = "";
-const LOCK = () => join(IMPORT, "reload.lock");
 
 const render = (cmd: string, runId = "<run id>") => cmd.replaceAll("<import>", IMPORT).replaceAll("<run id>", runId);
 
@@ -61,25 +58,21 @@ const age = (path: string, seconds: number) => {
 };
 
 beforeEach(() => {
-  IMPORT = mkdtempSync(join(tmpdir(), "kb-lock-"));
+  IMPORT = mkdtempSync(join(tmpdir(), "kb-reload-"));
 });
 
 afterEach(() => {
+  chmodSync(IMPORT, 0o755);
   rmSync(IMPORT, { recursive: true, force: true });
 });
 
-const PWSH_NOTE = "PowerShell on macOS; Windows cmdlet behaviour unverified";
-if (!PWSH) console.warn(`PowerShell reload-lock runs (${PWSH_NOTE}) skipped: pwsh is not on PATH`);
+if (!PWSH) console.warn("PowerShell reload runs skipped: pwsh is not on PATH");
 
 describe("runtime.md and update-operator name the reload commands", () => {
-  test("run id per shell, take, age check per shell, remove", () => {
-    expect(lockCommands()).toEqual({
+  test("one run id command per shell", () => {
+    expect(idCommands()).toEqual({
       idSh: 'mktemp -u "<import>/kb-export.XXXXXXXXXXXX"',
       idPs: "[guid]::NewGuid().ToString('N').Substring(0,12)",
-      take: 'mkdir "<import>/reload.lock"',
-      ageSh: 'find "<import>/reload.lock" -maxdepth 0 -mmin +30',
-      agePs: '(Get-Item "<import>/reload.lock").LastWriteTime.AddMinutes(30) -lt (Get-Date)',
-      remove: 'rmdir "<import>/reload.lock"',
     });
   });
 
@@ -90,84 +83,20 @@ describe("runtime.md and update-operator name the reload commands", () => {
     });
   });
 
-  test("stale means more than 30 minutes", () => {
-    expect(lockSection()).toContain("more than 30 minutes");
-  });
-
-  test("setup-operator pre-allows every reload command it can allow exactly, and never the rm", async () => {
-    const setup = await Bun.file(join(PLUGIN, "skills/setup-operator/SKILL.md")).text();
-    const c = lockCommands();
-    for (const cmd of [c.idSh, c.take, c.remove, runFileCommands().chmod]) expect(setup).toContain(`Bash(${cmd})`);
+  test("setup-operator pre-allows the run id and the chmod exactly, and never the rm", () => {
+    const c = idCommands();
+    expect(setup).toContain(`Bash(${c.idSh})`);
+    expect(setup).toContain(`Bash(${runFileCommands().chmod})`);
     expect(setup).toContain(`PowerShell(${c.idPs})`);
-    expect(setup).toContain(`PowerShell(${c.agePs})`);
     expect(setup).not.toContain(`Bash(${runFileCommands().rm})`);
   });
 });
 
 for (const shell of ["bash", "zsh", "pwsh"] as const) {
   const skip = shell === "pwsh" && !PWSH;
-  describe(`reload lock in ${shell}${shell === "pwsh" ? ` (${PWSH_NOTE})` : ""}`, () => {
-    const c = lockCommands();
-    const ageCmd = shell === "pwsh" ? c.agePs : c.ageSh;
-    const isStale = (out: string) => (shell === "pwsh" ? out === "True" : out !== "");
-    const isFresh = (out: string) => (shell === "pwsh" ? out === "False" : out === "");
-    const missing = (err: string) => /No such file or directory|Cannot find path|does not exist|nicht gefunden|nicht vorhanden/i.test(err);
-
-    test.skipIf(skip)("the take succeeds once and fails with an error that says the lock exists", () => {
-      expect(run(shell, c.take).code).toBe(0);
-      const again = run(shell, c.take);
-      expect(again.code).not.toBe(0);
-      expect(again.err).toMatch(/File exists|already exists/i);
-    });
-
-    test.skipIf(skip)("a missing import folder gives another error than exists", () => {
-      rmSync(IMPORT, { recursive: true, force: true });
-      const r = run(shell, c.take);
-      expect(r.code).not.toBe(0);
-      expect(r.err).not.toMatch(/File exists|already exists/i);
-    });
-
-    test.skipIf(skip)("the lock is fresh when just taken or 29 minutes old, stale at 32 minutes", () => {
-      run(shell, c.take);
-      expect(isFresh(run(shell, ageCmd).out)).toBe(true);
-      age(LOCK(), 29 * 60);
-      expect(isFresh(run(shell, ageCmd).out)).toBe(true);
-      age(LOCK(), 32 * 60);
-      expect(isStale(run(shell, ageCmd).out)).toBe(true);
-    });
-
-    test.skipIf(skip)("the age check of a missing lock fails with an error that says it does not exist", () => {
-      const r = run(shell, ageCmd);
-      expect(missing(r.err)).toBe(true);
-    });
-
-    test.skipIf(skip)("rmdir removes the empty lock, and the take succeeds again", () => {
-      run(shell, c.take);
-      expect(run(shell, c.remove).code).toBe(0);
-      expect(existsSync(LOCK())).toBe(false);
-      expect(run(shell, c.take).code).toBe(0);
-    });
-
-    test.skipIf(skip)("a lost race on the stale break: the second rmdir removes the first run's fresh lock, and both take it", () => {
-      run(shell, c.take);
-      age(LOCK(), 32 * 60);
-      expect(isStale(run(shell, ageCmd).out)).toBe(true);
-      expect(run(shell, c.remove).code).toBe(0);
-      expect(run(shell, c.take).code).toBe(0);
-      expect(run(shell, c.remove).code).toBe(0);
-      expect(run(shell, c.take).code).toBe(0);
-      expect(readdirSync(LOCK())).toEqual([]);
-    });
-
-    test.skipIf(skip)("a hidden entry keeps rmdir from removing the lock", () => {
-      run(shell, c.take);
-      writeFileSync(join(LOCK(), ".DS_Store"), "");
-      const r = run(shell, c.remove);
-      expect(r.code).not.toBe(0);
-      expect(existsSync(LOCK())).toBe(true);
-    });
-
-    test.skipIf(skip)("the run id command prints 12 letters or digits, a new one each time, and leaves nothing behind, also in a read-only folder", () => {
+  describe(`run id in ${shell}`, () => {
+    test.skipIf(skip)("prints 12 letters or digits, a new one each time, and leaves nothing behind, also in a read-only folder", () => {
+      const c = idCommands();
       const cmd = shell === "pwsh" ? c.idPs : c.idSh;
       const ro = mkdtempSync(join(tmpdir(), "kb-ro-"));
       chmodSync(ro, 0o555);
@@ -222,3 +151,47 @@ for (const shell of ["bash", "zsh"] as const) {
     });
   });
 }
+
+describe("the chmod is skipped in PowerShell", () => {
+  const SCOPE =
+    'The `chmod` runs only in bash and zsh on macOS and Linux: skip it in PowerShell on every OS, where `"<import>"/kb-export.????????????.json` splits into two arguments and `chmod` then changes the import folder itself, and skip it on Windows in every shell, Git Bash included.';
+
+  test("runtime.md and update-operator state the same scope", () => {
+    expect(runtime).toContain(SCOPE);
+    expect(reloadStep).toContain(SCOPE);
+  });
+
+  test.skipIf(!PWSH)("in pwsh the pattern splits into two arguments and the chmod changes the import folder itself", () => {
+    const f = join(IMPORT, "kb-export.aaaaaaaaaaaa.json");
+    writeFileSync(f, "{}", { mode: 0o600 });
+    chmodSync(IMPORT, 0o700);
+    const r = run("pwsh", runFileCommands().chmod);
+    expect(r.code).not.toBe(0);
+    expect(r.err).toContain("/kb-export.????????????.json");
+    expect(statSync(IMPORT).mode & 0o777).toBe(0o644);
+    chmodSync(IMPORT, 0o755);
+    expect(statSync(f).mode & 0o777).toBe(0o600);
+  });
+});
+
+describe("setup-operator's sweep in bash", () => {
+  test("removes run exports, 1.2.4 temp exports and the 1.2.4 shared export older than 30 minutes, and nothing younger or else", () => {
+    const old = ["kb-export.aaaaaaaaaaaa.json", "kb-export.json.tmp", "kb-export.json", "other.json"];
+    for (const n of old) {
+      writeFileSync(join(IMPORT, n), "{}");
+      age(join(IMPORT, n), 31 * 60);
+    }
+    writeFileSync(join(IMPORT, "kb-export.bbbbbbbbbbbb.json"), "{}");
+    const cmds = sweepCommands();
+    expect(cmds).toContain('find "<import>" -maxdepth 1 -name "kb-export.json" -mmin +30 -delete');
+    for (const c of cmds) expect(run("bash", c).code).toBe(0);
+    expect(readdirSync(IMPORT).sort()).toEqual(["kb-export.bbbbbbbbbbbb.json", "other.json"]);
+  });
+
+  test("keeps a 1.2.4 shared export younger than 30 minutes", () => {
+    writeFileSync(join(IMPORT, "kb-export.json"), "{}");
+    age(join(IMPORT, "kb-export.json"), 29 * 60);
+    for (const c of sweepCommands()) run("bash", c);
+    expect(readdirSync(IMPORT)).toEqual(["kb-export.json"]);
+  });
+});

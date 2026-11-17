@@ -4,7 +4,7 @@ How the `knowledge-base` skills locate the project's KB and run the plugin's que
 
 ## Shell rules
 
-Every command below runs unchanged in bash, zsh and PowerShell, except the run id command and the age check in "Reload lock", and the `chmod` of update-operator step 6.5, which runs only in bash and zsh.
+Every command below runs unchanged in bash, zsh and PowerShell, except the run id command in "Reload", which has one form per shell, and the `chmod` of update-operator step 6.4. The `chmod` runs only in bash and zsh on macOS and Linux: skip it in PowerShell on every OS, where `"<import>"/kb-export.????????????.json` splits into two arguments and `chmod` then changes the import folder itself, and skip it on Windows in every shell, Git Bash included.
 
 - An environment value is read first, with its own command, and then written into the next command as literal text: `printenv <KEY>` in bash or zsh, `[Environment]::GetEnvironmentVariable('<KEY>')` in PowerShell. Empty output means unset. A command line never contains `$<KEY>`, `$env:<KEY>` or `%<KEY>%`.
 - Read only `KB_PATH`, `NEO4J_SHELL` and `NEO4J_DATABASE`. `NEO4J_USERNAME` and `NEO4J_PASSWORD` are never read, printed or written into a command; `NEO4J_SHELL` passes them on by name.
@@ -16,7 +16,7 @@ Every command below runs unchanged in bash, zsh and PowerShell, except the run i
 
 ## Denied or failed commands
 
-When the permission system denies a command, or a command fails where a skill names no outcome for that failure, stop and report the exact command and the reason (the denial, or the first error line). Once update-operator holds the reload lock, its step 6.8 runs before the stop: it removes the run's export file and releases the lock. Never change its flags, drop a step, split or merge commands, or substitute another command to get past it. A skill step that names what happens on a failure, such as `index: unavailable` and reading the clone's files, is that step's outcome, not a workaround.
+When the permission system denies a command, or a command fails where a skill names no outcome for that failure, stop and report the exact command and the reason (the denial, or the first error line). Once update-operator's export has exited (its step 6.3), its step 6.7 runs before the stop: it removes the run's export file. Never change its flags, drop a step, split or merge commands, or substitute another command to get past it. A skill step that names what happens on a failure, such as `index: unavailable` and reading the clone's files, is that step's outcome, not a workaround.
 
 ## Locate the KB
 
@@ -82,11 +82,9 @@ Parameters per query:
 
 A query fails when it cannot start or exits non-zero. Its reason is the first line of its error output. A reason that starts with `refusing` comes from the store guard: the store holds another KB or an unstamped graph.
 
-## Reload lock
+## Reload
 
-Each reload run exports to its own file, `<import>/kb-export.<run id>.json`, and loads it by name, so runs share no file. The lock is the folder `<import>/reload.lock`: it exists while a run reloads, and it only keeps a second run from repeating that work. It is always empty; nothing is ever written into it, so its modification time is the time it was taken. Stale means it was taken more than 30 minutes ago: above the export's 10-minute time limit plus the load.
-
-The lock is best effort. Two runs that both find the same stale lock can both remove it and take it again: the second `rmdir` removes the lock the first has just taken, and both reload. A run's release can likewise remove a lock another run took after breaking this run's stale one. Both reload then, which is safe: each loads only its own file, the load is one transaction, and a load that overlaps another load of the same commit either commits the same graph or is refused by a uniqueness constraint, which update-operator reports as `current` once `status` shows the commit. The lock never blocks for good: every lock goes stale after 30 minutes, and an empty stale lock is removed by the next run.
+Each reload run exports to its own file, `<import>/kb-export.<run id>.json`, and loads it by name, so no run reads or removes another run's export. Two runs at once may both export and load. That is safe: `load.cypher` is one transaction, so concurrent loads either serialise or one is refused by the uniqueness constraint and rolls back, and the graph stays consistent. A run whose load is refused while `status` shows its commit reports `index: current`.
 
 `<run id>`: the run id command's output, drawn once per run. Never choose, type or change an id yourself: two runs that make one up can make up the same one.
 
@@ -101,37 +99,3 @@ In PowerShell it prints 12 random hexadecimal characters, `<run id>`:
 ```
 [guid]::NewGuid().ToString('N').Substring(0,12)
 ```
-
-Take the lock:
-
-```
-mkdir "<import>/reload.lock"
-```
-
-`mkdir` succeeds only when the folder did not exist. When it exists, `mkdir` fails with an error that says it exists, in whatever language (in English `File exists` or `already exists`). Any other error, such as `No such file or directory` for a missing `<import>` or `Permission denied`, means the folder could not be created. In bash, zsh, and PowerShell on macOS and Linux (where `mkdir` is the system's own command), creating the folder is atomic. In PowerShell on Windows, `mkdir` is `New-Item -ItemType Directory`, which checks for the folder and then creates it, so two runs that take the lock in the same instant can both succeed and both reload, which is safe as above (unverified on Windows).
-
-Check the lock's age. In bash and zsh:
-
-```
-find "<import>/reload.lock" -maxdepth 0 -mmin +30
-```
-
-It prints the lock's path: stale. It prints nothing: fresh. In PowerShell:
-
-```
-(Get-Item "<import>/reload.lock").LastWriteTime.AddMinutes(30) -lt (Get-Date)
-```
-
-It prints `True`: stale. `False`: fresh. In every shell, an error that says the path does not exist, in whatever language, means the lock was released in the meantime. `find` counts whole minutes: on macOS it calls a lock stale after more than 30 minutes, GNU `find` (Linux, Git Bash) from 31 minutes on. PowerShell compares to the second.
-
-The age check reads `<import>` outside the project's working folders. setup-operator's rule `Read(//<kb folder>/**)` allows that read, and with it `find` and `ls` there, without a prompt; the denial of a session without that rule says the command may only search the allowed working directories, and one setup-operator run adds the rule. With `permissions.blockReadsOutsideWorkingDirectories` set, no allow rule lets the read through: the denial says reads outside the working directories are blocked, and the remedy is to add `<kb folder>` as a working directory with `/add-dir` or to unset that setting (the denial and the `/add-dir` remedy seen in Claude Code 2.1.326).
-
-Remove the lock, to break a stale one and to release this run's:
-
-```
-rmdir "<import>/reload.lock"
-```
-
-`rmdir` removes only an empty folder. An error that says the folder does not exist means another run removed it first. A folder that is not empty, such as one holding the `.DS_Store` file macOS Finder writes, makes it fail with an error that says the folder is not empty, in whatever language (in English `Directory not empty`; PowerShell on macOS and Linux runs the system's `rmdir` and prints the same). In PowerShell on Windows, `rmdir` is `Remove-Item`: on a folder that is not empty it fails in a non-interactive session with an error that it cannot prompt, and asks for confirmation in an interactive one, where confirming removes the folder with its contents (seen in pwsh on macOS, unverified on Windows). Take either error as not empty, and never confirm that question.
-
-`mkdir` and `rmdir` of the lock change a folder outside the project's working folders: a non-prompting session runs them only with both setup-operator's `Bash(…)` rule for the exact command and its `Edit(~/.kb/<kb>/import/reload.lock)` rule; with the `Bash(…)` rule alone Claude Code 2.1.326 denied them as outside the working directories.

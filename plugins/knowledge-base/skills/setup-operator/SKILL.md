@@ -42,14 +42,14 @@ The layout, the env keys and the isolation rules are in the contract, `contracts
 
 ## Merge into the settings
 
-Write `<fragment>` with the file tools (a fragment left by a failed run is read first, since the Write tool overwrites only a file it has read; it holds no secret), and run the merge only after the write succeeded: a JSON object with the `env` keys and the `permissions` lists (`allow`, `deny`) to add. Create `<project>/.claude` if it is missing (Commands per OS), so Docker does not create it as another user; `.claude` is a protected path, so this one command always asks the developer, and a headless session cannot run it. Then run, unchanged:
+Write `<fragment>` with the file tools (a fragment left by a failed run is read first, since the Write tool overwrites only a file it has read; it holds no secret), and run the merge only after the write succeeded: a JSON object with the `env` keys and the `permissions` lists (`allow`, `deny`) to add, and the `remove` lists (`allow`) to remove. Create `<project>/.claude` if it is missing (Commands per OS), so Docker does not create it as another user; `.claude` is a protected path, so this one command always asks the developer, and a headless session cannot run it. Then run, unchanged:
 
 ```
 docker run --rm --network none -v "<scripts>:/s:ro" -v "<home>/.kb:/f" -v "<project>/.claude:/w" --entrypoint python <mcp image> /s/merge-settings.py /f/setup-fragment.json /w/settings.local.json
 ```
 
 - A missing `<settings>` is created with mode 600 and the owner of `<project>/.claude`. An existing one keeps its owner and other keys and gets mode 600.
-- A missing key or entry is added (`added …`); one with the same value stays (`kept …`). A key with another value is never changed: `conflict env <key>`, with the current and wanted value for `KB_PATH`, `NEO4J_SHELL`, `NEO4J_USERNAME` and `NEO4J_DATABASE` only. Every conflict goes into the report.
+- An entry under `remove` that `<settings>` holds is removed (`removed …`); one it does not hold prints nothing. A missing key or entry is added (`added …`); one with the same value stays (`kept …`). A key with another value is never changed: `conflict env <key>`, with the current and wanted value for `KB_PATH`, `NEO4J_SHELL`, `NEO4J_USERNAME` and `NEO4J_DATABASE` only. Every conflict goes into the report.
 - `error: … nothing changed` (`<settings>` is not valid JSON, or its `env`, `permissions` or a permission list has the wrong type): the script wrote and deleted nothing; reply that line and stop.
 - The fragment write or the merge command is denied by auto mode: reply `auto mode blocks the settings merge; switch this session to manual mode (shift+tab), or add Edit(~/.kb/setup-fragment.json) and Bash(docker *) to your user settings (on Windows also PowerShell(docker *)), then run setup-operator again` and stop.
 
@@ -178,13 +178,14 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
    - `replace_env`: `["NEO4J_SHELL"]` when the developer confirmed the store switch of step 2.7; otherwise leave it out. The script replaces only the listed keys among `KB_PATH`, `NEO4J_SHELL`, `NEO4J_USERNAME` and `NEO4J_DATABASE`, and reports `replaced env <key>: was …, now …`.
    - `permissions.allow`: the rules of "Allow rules" below, except the `<NEO4J_SHELL>` query rule.
    - `permissions.deny`: `Read(/.claude/settings.local.json)`.
+   - `remove.allow`: the reload lock rules of "Allow rules" below.
 
    Its `<password state>` is the state from here on. `<database>`: the current value from `conflict env NEO4J_DATABASE: current <value>, …` when the merge printed that line; otherwise `neo4j`.
 3. Merge a second fragment with only `permissions.allow` = the `<NEO4J_SHELL>` query rule, rendered with `<database>`. It now matches the database every query uses.
 
 ### Allow rules
 
-Each rule is written with the paths exactly as the skills write them in commands. On Windows, add every `Bash(…)` rule once more as `PowerShell(…)` with the same text, except the `chmod` and `mktemp` rules, which have no Windows copy; replace the three `printenv` rules by `PowerShell([Environment]::GetEnvironmentVariable('KB_PATH'))` and the same for `NEO4J_SHELL` and `NEO4J_DATABASE`; and add the run id command and the age check of `../update-operator/runtime.md`, section "Reload lock": `PowerShell([guid]::NewGuid().ToString('N').Substring(0,12))` and `PowerShell((Get-Item "<import>/reload.lock").LastWriteTime.AddMinutes(30) -lt (Get-Date))`. In bash and zsh the age check is a `find` command, which the `Read` rule on `<kb folder>` admits.
+Each rule is written with the paths exactly as the skills write them in commands. On Windows, add every `Bash(…)` rule once more as `PowerShell(…)` with the same text, except the `chmod` and `mktemp` rules, which have no PowerShell copy; replace the three `printenv` rules by `PowerShell([Environment]::GetEnvironmentVariable('KB_PATH'))` and the same for `NEO4J_SHELL` and `NEO4J_DATABASE`; and add the PowerShell run id command of `../update-operator/runtime.md`, section "Reload": `PowerShell([guid]::NewGuid().ToString('N').Substring(0,12))`.
 
 ```
 Bash(printenv KB_PATH)
@@ -200,12 +201,9 @@ Bash(git -C "<clone>" log -1 --format=%cr HEAD)
 Bash(<NEO4J_SHELL> -d <database> --format plain -f /import/queries/*)
 Bash(mktemp -u "<import>/kb-export.XXXXXXXXXXXX")
 Bash(chmod 644 "<import>"/kb-export.????????????.json)
-Bash(mkdir "<import>/reload.lock")
-Bash(rmdir "<import>/reload.lock")
 Read(//<plugins folder>/**)
 Read(//<kb folder>/**)
 Edit(~/.kb/<kb>/import/queries/*.cypher)
-Edit(~/.kb/<kb>/import/reload.lock)
 Edit(~/.kb/<kb>/worktrees/*/**/*.md)
 Edit(~/.kb/<kb>/worktrees/*.commit-message)
 Edit(~/.kb/<kb>/worktrees/*.pull-request.json)
@@ -217,9 +215,20 @@ mcp__kb-<kb>__*
 - `<plugins folder>`: the parent folder of the plugin root (the plugin root is two folders above this skill's directory). The skills read their shared files there (`runtime.md`, the contract, the query files), and list the query folder with `ls`; the rule covers both, and every installed plugin version.
 - `//<plugins folder>/**` and `//<kb folder>/**` are absolute paths without their leading `/`, after `//`; on Windows in the form `//c/Users/…` with forward slashes. The KB folder is readable only; it is not an additional working directory, so no permission mode, `acceptEdits` included, edits anything under it beyond the `Edit` rules above.
 - Every `Bash` rule is an exact command except the `<NEO4J_SHELL>` rule. The `?` of the `chmod` rule are text to the permission system, which treats only `*` as a wildcard: with Claude Code 2.1.326 the rule allowed the command in a session that could not prompt, and denied the same command with one more file argument. The shell expands them to the export file of every run in `<import>`, and the `chmod` gives each the mode its run sets anyway.
-- The reload lock's `mkdir` and `rmdir` change a folder outside the project's working folders: Claude Code 2.1.326 ran them without a prompt only with the `Edit` rule on `<import>/reload.lock` next to their `Bash` rule. The age check and the listings of the query folder need no `Bash` rule: `ls` and `find` are among Claude Code's built-in read-only commands (https://code.claude.com/docs/en/permissions#read-only-commands), and the `Read` rule on `<kb folder>` admits them there; with `permissions.blockReadsOutsideWorkingDirectories` set, no allow rule does (section "Reload lock" of `runtime.md` names the remedy). In auto mode the classifier may still review them.
-- The `Edit` rules admit only text no program runs as code: `.cypher` files in the query folder, which only `cypher-shell` reads; Markdown documents in a worktree; and the writer's message files next to the worktrees. A script, `package.json`, a `.git` file or a companion change of another type in a worktree prompts, with its content shown, before it is written. So a later approved command, such as `pr.pre_commit`, runs only code the developer has seen. The rule on `<import>/reload.lock` admits one path: a file written there in place of the lock folder keeps every reload away until it is removed by hand (`cannot be cleared`).
-- A setup before knowledge-base 1.2.5 added `Bash(chmod 644 "<import>/kb-export.json.tmp")`, `Bash(rm "<import>/kb-export.json")` and `Bash(mv "<import>/kb-export.json.tmp" "<import>/kb-export.json")`. No skill runs them any more. The merge only adds and keeps entries, so this setup cannot remove them; each names one fixed path, and the developer may delete them from `<settings>` by hand.
+- The `Edit` rules admit only text no program runs as code: `.cypher` files in the query folder, which only `cypher-shell` reads; Markdown documents in a worktree; and the writer's message files next to the worktrees. A script, `package.json`, a `.git` file or a companion change of another type in a worktree prompts, with its content shown, before it is written. So a later approved command, such as `pr.pre_commit`, runs only code the developer has seen.
+- A setup before knowledge-base 1.2.5 added `Bash(chmod 644 "<import>/kb-export.json.tmp")`, `Bash(rm "<import>/kb-export.json")` and `Bash(mv "<import>/kb-export.json.tmp" "<import>/kb-export.json")`. No skill runs them any more. This setup does not remove them; each names one fixed path, and the developer may delete them from `<settings>` by hand.
+- A setup from a development build of knowledge-base 1.2.5 added rules for a reload lock that no skill takes any more. The merge of step 4.2 removes them by their exact text, which identifies them; a rule with the same text that the developer added by hand goes too:
+
+  ```
+  Bash(mkdir "<import>/reload.lock")
+  Bash(rmdir "<import>/reload.lock")
+  PowerShell(mkdir "<import>/reload.lock")
+  PowerShell(rmdir "<import>/reload.lock")
+  PowerShell((Get-Item "<import>/reload.lock").LastWriteTime.AddMinutes(30) -lt (Get-Date))
+  Edit(~/.kb/<kb>/import/reload.lock)
+  ```
+
+  An empty `<import>/reload.lock` folder that such a build left stays; it does no harm.
 - Accepted risk, the query wildcard: the trailing `*` of the `<NEO4J_SHELL>` rule admits any further `cypher-shell` arguments. Together with the `Edit` rule on the query folder, a session can write and run any Cypher against this KB's own store, which holds only the rebuildable index. Nothing leaves the machine that way: the store has no network route outside Docker, so `LOAD CSV` and APOC loads from a URL fail, APOC outside the allowlist is not loaded, file loads stay in `/import`, and an inserted `-a <host>` reaches only containers on `kb-<kb>`.
 - Not pre-allowed, so these prompt, unless the developer's own permission mode, rules or hooks allow them:
   - the export command, once per reindex, with its `cd` into the clone;
@@ -277,8 +286,8 @@ A new or recreated container only. A reused container (step 3a.5) skips to step 
 
 The new `env` and the MCP server reach only new sessions, so each check runs in a fresh session started in `<project>` with `claude -p`. The setup is done only when all three checks pass. A setup that skipped this step (Docker missing in step 1.2, a recreate declined in step 3a.7) reports `index: not ready — <that reason>`.
 
-1. **Load.** The load runs the manifest's export. It is not pre-allowed, and a headless session cannot ask, so this one session gets an explicit one-time grant for exactly the `cd` and the export of update-operator's step 6.4.
-   - First, on macOS and Linux, remove leftover export files older than 30 minutes, the reload lock's stale limit: a younger one may belong to a run that reloads now. Each command prompts; a denial or a failure leaves the files, and the setup continues:
+1. **Load.** The load runs the manifest's export. It is not pre-allowed, and a headless session cannot ask, so this one session gets an explicit one-time grant for exactly the `cd` and the export of update-operator's step 6.3.
+   - First, on macOS and Linux, sweep leftover export files older than 30 minutes, above the export's 10-minute limit plus the load: a younger one may belong to a run that reloads now, in this project or another. Each command prompts; a denial or a failure leaves the files, and the setup continues:
 
      ```
      find "<import>" -maxdepth 1 -name "kb-export.*.json" -mmin +30 -delete
@@ -288,7 +297,11 @@ The new `env` and the MCP server reach only new sessions, so each check runs in 
      find "<import>" -maxdepth 1 -name "*.json.tmp" -mmin +30 -delete
      ```
 
-     The first removes the export files of runs that stopped, or whose removal was denied; the second the temp exports of knowledge-base 1.2.4 and earlier. On Windows there is no such command without a pipe: leftovers stay until the developer removes them by hand.
+     ```
+     find "<import>" -maxdepth 1 -name "kb-export.json" -mmin +30 -delete
+     ```
+
+     The first removes the export files of runs that stopped, timed out, or whose removal was denied; the second the temp exports of knowledge-base 1.2.4 and earlier; the third the shared export file of knowledge-base 1.2.4 and earlier, which a 1.2.4 run in another project may still use while it is younger. On Windows there is no such command without a pipe: leftovers stay until the developer removes them by hand.
    - Fast-forward the clone first, as update-operator's steps 2.3 and 2.4 do: `git -C "<clone>" fetch --quiet origin`, then `git -C "<clone>" merge --ff-only --quiet origin/<default>`. The fetch fails: continue on the clone's current commit. The merge fails: reply `the read-only clone <clone> cannot fast-forward to origin/<default>: <first error line>; clean it up yourself, then run setup-operator again` and stop. The session then exports the commit the grant names.
    - `<commit>`: `git -C "<clone>" rev-parse HEAD`; `<export command>`: the manifest's `export.cmd` with `{ref}` replaced by `"<commit>"` and `{out}` by `"<import>/kb-export.*.json"`: update-operator renders it with the run id the session draws in place of `*`.
    - The manifest's `export.cmd` contains `*`, `;`, `&`, `|`, `)`, a backtick or a line break: it cannot be granted exactly. Run the session without the `--allowedTools` part; the export is refused there, and the failure action is `run "fetch: kb <first resource name of the manifest>" once in an interactive session in <project>, then run setup-operator again`.

@@ -56,6 +56,16 @@ def main(fragment_path, settings_path):
             else:
                 lines.append(f"conflict env {key}")
 
+    unwanted = fragment.get("remove", {})
+    if unwanted and isinstance(current.get("permissions"), dict):
+        permissions = current["permissions"]
+        for name in LISTS:
+            existing = permissions.get(name, [])
+            for entry in unwanted.get(name, []):
+                if entry in existing:
+                    permissions[name] = existing = [e for e in existing if e != entry]
+                    lines.append(f"removed {name} {entry}")
+
     wanted_permissions = fragment.get("permissions", {})
     if wanted_permissions:
         permissions = current.setdefault("permissions", {})
