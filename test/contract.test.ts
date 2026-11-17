@@ -253,6 +253,25 @@ describe("update-operator reload", () => {
     expect(rules).toContain("on macOS and Linux step 7.1 removes such files once they are older than 30 minutes, on Windows the developer removes them by hand");
   });
 
+  test("the one-session grant is exact only when export.cmd, <clone> and <import> hold none of the listed characters", () => {
+    const grant = setup.slice(setup.indexOf("1. **Load.**"), setup.indexOf("2. **Full-text index"));
+    expect(grant).toContain("The manifest's `export.cmd`, `<clone>` or `<import>` contains `*`, `;`, `&`, `|`, `)`, a backtick or a line break");
+    expect(grant).toMatch(/the one `\*` this step puts into `\{out\}` is not counted/);
+  });
+
+  test("the ? rule is recorded as verified on Claude Code 2.1.326, with the near misses it denied", () => {
+    const at = rules.indexOf("- Every `Bash` rule is an exact command");
+    const bullet = rules.slice(at, rules.indexOf("\n", at));
+    expect(bullet).toContain("Claude Code 2.1.326");
+    expect(bullet).toContain("`kb-export.abcdef123456.json`");
+    expect(bullet).toContain("`kb-export.abcdef12345.json`");
+    expect(bullet).not.toMatch(/unverified/);
+  });
+
+  test("README's development section names the CI workflow", () => {
+    expect(section(readme, "## Development")).toContain(".github/workflows/test.yml");
+  });
+
   test("setup grants its load session only the export, and the run's file removal prompts", () => {
     const grant = setup.slice(setup.indexOf("1. **Load.**"), setup.indexOf("2. **Full-text index"));
     expect(grant).toContain("'Bash(<export command>)'");

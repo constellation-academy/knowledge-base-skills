@@ -41,6 +41,8 @@ def main(fragment_path, settings_path):
     if not isinstance(unwanted, dict):
         fail("remove in the fragment is not an object")
     for name, entries in unwanted.items():
+        if name not in LISTS:
+            fail(f"remove.{name} in the fragment is not a permission list")
         if not isinstance(entries, list) or not all(isinstance(e, str) for e in entries):
             fail(f"remove.{name} in the fragment is not a list of strings")
 

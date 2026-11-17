@@ -107,4 +107,13 @@ describe.if(hasPython)("merge-settings.py", () => {
       expect(existsSync(fragment())).toBe(true);
     }
   });
+
+  test("refuses a remove key that is not a permission list", () => {
+    const before = { permissions: { allow: ["Bash(ls)"] } };
+    writeFileSync(settings(), JSON.stringify(before));
+    const r = merge({ remove: { ask: ["Bash(ls)"] } });
+    expect(r.code).toBe(2);
+    expect(r.out).toBe("error: remove.ask in the fragment is not a permission list; nothing changed\n");
+    expect(JSON.parse(readFileSync(settings(), "utf8"))).toEqual(before);
+  });
 });

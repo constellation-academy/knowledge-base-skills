@@ -76,6 +76,8 @@ bun test
 claude plugin validate plugins/knowledge-base
 ```
 
+CI runs `bun test` on Ubuntu for every pull request and every push to `main` (`.github/workflows/test.yml`), with Docker, pwsh and zsh, so the Neo4j tests and the Linux-only file-mode test run there.
+
 ## License
 
 Proprietary, all rights reserved; see [LICENSE](LICENSE).
