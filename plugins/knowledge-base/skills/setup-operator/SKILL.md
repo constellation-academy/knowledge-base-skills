@@ -184,7 +184,7 @@ These few steps have no command that runs unchanged in bash, zsh and PowerShell.
 
 ### Allow rules
 
-Each rule is written with the paths exactly as the skills write them in commands. On Windows, add every `Bash(…)` rule once more as `PowerShell(…)` with the same text, replace the three `printenv` rules by `PowerShell([Environment]::GetEnvironmentVariable('KB_PATH'))` and the same for `NEO4J_SHELL` and `NEO4J_DATABASE`, and replace the `PowerShell(…)` copies of the three commands that differ per shell (`../update-operator/runtime.md`, section "Reload lock"): the `mktemp` rule by `PowerShell([guid]::NewGuid().ToString('N').Substring(0,12))`, the run id command; the two `find` rules by `PowerShell((Get-Item "<import>/reload.lock/*").LastWriteTime.AddMinutes(30) -lt (Get-Date))` and `PowerShell((Get-Item "<import>/reload.lock").LastWriteTime.AddMinutes(30) -lt (Get-Date))`, the age checks.
+Each rule is written with the paths exactly as the skills write them in commands. On Windows, add every `Bash(…)` rule once more as `PowerShell(…)` with the same text, replace the three `printenv` rules by `PowerShell([Environment]::GetEnvironmentVariable('KB_PATH'))` and the same for `NEO4J_SHELL` and `NEO4J_DATABASE`, replace the `PowerShell(…)` copy of the `mktemp` rule by `PowerShell([guid]::NewGuid().ToString('N').Substring(0,12))`, the run id command, and add the two age checks of `../update-operator/runtime.md`, section "Reload lock": `PowerShell((Get-Item "<import>/reload.lock/*").LastWriteTime.AddMinutes(30) -lt (Get-Date))` and `PowerShell((Get-Item "<import>/reload.lock").LastWriteTime.AddMinutes(30) -lt (Get-Date))`. In bash and zsh the age checks are `find` commands, which need no rule.
 
 ```
 Bash(printenv KB_PATH)
@@ -198,16 +198,13 @@ Bash(git -C "<clone>" fetch --quiet origin)
 Bash(git -C "<clone>" merge --ff-only --quiet origin/<default>)
 Bash(git -C "<clone>" log -1 --format=%cr HEAD)
 Bash(<NEO4J_SHELL> -d <database> --format plain -f /import/queries/*)
-Bash(chmod 644 "<import>/kb-export.*.json.tmp")
+Bash(chmod 644 "<import>/kb-export.json")
 Bash(rm "<import>/kb-export.json")
-Bash(mv "<import>/kb-export.*.json.tmp" "<import>/kb-export.json")
 Bash(mktemp -u XXXXXXXXXXXX)
 Bash(mkdir "<import>/reload.lock")
 Bash(mkdir "<import>/reload.lock/*")
 Bash(rmdir "<import>/reload.lock")
 Bash(rmdir "<import>/reload.lock/*")
-Bash(find "<import>/reload.lock/*" -maxdepth 0 -mmin +30)
-Bash(find "<import>/reload.lock" -maxdepth 0 -mmin +30)
 Read(//<plugins folder>/**)
 Read(//<kb folder>/**)
 Edit(~/.kb/<kb>/import/queries/*.cypher)
@@ -221,18 +218,19 @@ mcp__kb-<kb>__*
 
 - `<plugins folder>`: the parent folder of the plugin root (the plugin root is two folders above this skill's directory). The skills read their shared files there (`runtime.md`, the contract, the query files), and list the query folder with `ls`; the rule covers both, and every installed plugin version.
 - `//<plugins folder>/**` and `//<kb folder>/**` are absolute paths without their leading `/`, after `//`; on Windows in the form `//c/Users/…` with forward slashes. The KB folder is readable only; it is not an additional working directory, so no permission mode, `acceptEdits` included, edits anything under it beyond the `Edit` rules above.
-- Every `Bash` rule is an exact command except six: the `<NEO4J_SHELL>` rule, the three reload-lock rules whose `*` stands for a run's `<run id>`, and the `chmod` and `mv` rules, whose `*` stands for the `<run id>` in the run's temp file name. The listings of the reload lock and of `<import>` need no rule: `ls` is one of Claude Code's built-in read-only commands, which run without a prompt in every permission mode unless `permissions.blockReadsOutsideWorkingDirectories` is set (https://code.claude.com/docs/en/permissions#read-only-commands); in auto mode the classifier may still review them. The `Edit` rules admit only text no program runs as code: `.cypher` files in the query folder, which only `cypher-shell` reads; Markdown documents in a worktree; and the writer's message files next to the worktrees. A script, `package.json`, a `.git` file or a companion change of another type in a worktree prompts, with its content shown, before it is written. So a later approved command, such as `pr.pre_commit`, runs only code the developer has seen.
-- Accepted risk, the run id wildcards: a `*` in a `Bash` rule matches any text, spaces included (https://code.claude.com/docs/en/permissions#wildcard-patterns), so each admits further arguments, not only a run id. The `mkdir` rule can then create any empty folder the developer may create, and the `rmdir` rule remove any empty folder. The `chmod` rule can make any file the developer owns readable for every local user (mode 644). The `mv` rule can move any file the developer may move: with more than one source `mv` fails, since `<import>/kb-export.json` is not a folder (checked with macOS and GNU `mv`), but GNU `mv` (Linux, Git Bash) also takes an inserted `-t <folder>` and then moves every named file into that folder. The `find` rule: Claude Code documents that a prefix rule such as `Bash(find *)` cannot auto-approve a `find` with an action that runs commands, deletes or writes files, such as `-exec` or `-delete` (https://code.claude.com/docs/en/permissions#exec-wrappers-and-find-actions); that this also holds for the reload-lock rule, whose `*` is not at the end, is unverified.
+- Every `Bash` rule is an exact command except three: the `<NEO4J_SHELL>` rule and the two reload-lock rules whose `*` stands for a run's `<run id>`, the `mkdir` and the `rmdir` of an owner folder; on Windows also their `PowerShell(…)` copies and the owner age check, whose `*` stands for an owner folder's name. The listings of the reload lock and of `<import>` and, in bash and zsh, the age checks of the reload lock need no rule: `ls` and `find` are among Claude Code's built-in read-only commands, which run without a prompt in every permission mode unless `permissions.blockReadsOutsideWorkingDirectories` is set (https://code.claude.com/docs/en/permissions#read-only-commands); in auto mode the classifier may still review them. The `Edit` rules admit only text no program runs as code: `.cypher` files in the query folder, which only `cypher-shell` reads; Markdown documents in a worktree; and the writer's message files next to the worktrees. A script, `package.json`, a `.git` file or a companion change of another type in a worktree prompts, with its content shown, before it is written. So a later approved command, such as `pr.pre_commit`, runs only code the developer has seen.
+- Accepted risk, the run id wildcards: a `*` in a `Bash` rule matches any text, spaces included (https://code.claude.com/docs/en/permissions#wildcard-patterns), so each admits further arguments, not only a run id. The `mkdir` rule can then create any empty folder the developer may create, and the `rmdir` rule remove any empty folder.
 - Accepted risk, the query wildcard: the trailing `*` of the `<NEO4J_SHELL>` rule admits any further `cypher-shell` arguments. Together with the `Edit` rule on the query folder, a session can write and run any Cypher against this KB's own store, which holds only the rebuildable index. Nothing leaves the machine that way: the store has no network route outside Docker, so `LOAD CSV` and APOC loads from a URL fail, APOC outside the allowlist is not loaded, file loads stay in `/import`, and an inserted `-a <host>` reaches only containers on `kb-<kb>`.
 - Not pre-allowed, so these prompt, unless the developer's own permission mode, rules or hooks allow them:
   - the export command, once per reindex, with its `cd` into the clone;
+  - update-operator's move of a run's export into place, `mv "<import>/kb-export.<run id>.json.tmp" "<import>/kb-export.json"`, once per reindex: a rule with `*` in its place would admit the move of any file;
   - update-operator's removal of a failed run's temp file, `rm "<import>/kb-export.<run id>.json.tmp"`: a rule with `*` in its place would admit the removal of any file;
   - `pr.pre_commit`, with its `cd` into the worktree;
   - the writer's git work: `git -C "<clone>" remote get-url origin`, the worktree and branch, the remote branch check, staging, commit and push;
   - the pull request call: `gh --version` and `gh api …`, or `az --version` and `az repos pr create …`;
   - a companion change that is not a Markdown file.
 
-  Each could be widened into a prompt-free file read, file write or program run: a `*` there matches any text, inserted flags included, and the export and `pre_commit` commands run code from their working directory.
+  Each could be widened into a prompt-free file read, file write or program run: a `*` there matches any text, inserted flags included, and the export and `pre_commit` commands run code from their working directory. A session that cannot prompt therefore reloads the index only with the one-session grant of step 7.1, which names the export, the move and the temp file's removal.
 
 ## 5. Password and start
 
@@ -280,17 +278,18 @@ A new or recreated container only. A reused container (step 3a.5) skips to step 
 
 The new `env` and the MCP server reach only new sessions, so each check runs in a fresh session started in `<project>` with `claude -p`. The setup is done only when all three checks pass. A setup that skipped this step (Docker missing in step 1.2, a recreate declined in step 3a.7) reports `index: not ready — <that reason>`.
 
-1. **Load.** The load runs the manifest's export. The export is not pre-allowed, and a headless session cannot ask, so this one session gets an explicit one-time grant for exactly the two commands update-operator runs (its step 6.2):
+1. **Load.** The load runs the manifest's export and moves it into place. Neither is pre-allowed, and a headless session cannot ask, so this one session gets an explicit one-time grant for exactly the commands update-operator runs for them: the `cd` and the export of its step 6.2, the `mv` of its step 6.3, and the removal of its temp file in step 6.6.
+   - First clear temp exports a stopped run left behind, only when `ls "<import>/reload.lock"` says the path does not exist: while the lock exists, a run may be exporting to its temp file. List `<import>` (`ls "<import>"`); for each listed `kb-export.<id>.json.tmp`, run `rm "<import>/kb-export.<id>.json.tmp"`, which prompts. A denied or failed `rm`, or a listing that fails otherwise, leaves the files: continue. The lock exists, or its listing fails otherwise: leave them for the next setup-operator run.
    - Fast-forward the clone first, as update-operator's steps 2.3 and 2.4 do: `git -C "<clone>" fetch --quiet origin`, then `git -C "<clone>" merge --ff-only --quiet origin/<default>`. The fetch fails: continue on the clone's current commit. The merge fails: reply `the read-only clone <clone> cannot fast-forward to origin/<default>: <first error line>; clean it up yourself, then run setup-operator again` and stop. The session then exports the commit the grant names.
    - `<commit>`: `git -C "<clone>" rev-parse HEAD`; `<export command>`: the manifest's `export.cmd` with `{ref}` replaced by `"<commit>"` and `{out}` by `"<import>/kb-export.*.json.tmp"`: update-operator renders it with the run id the session draws in place of `*`.
    - The manifest's `export.cmd` contains `*`, `;`, `&`, `|`, `)`, a backtick or a line break: it cannot be granted exactly. Run the session without the `--allowedTools` part; the export is refused there, and the failure action is `run "fetch: kb <first resource name of the manifest>" once in an interactive session in <project>, then run setup-operator again`.
    - Otherwise, allowing up to 10 minutes:
 
      ```
-     claude -p "Use the knowledge-base:update-operator skill and reply with its report block only" --allowedTools 'Bash(cd "<clone>")' 'Bash(<export command>)'
+     claude -p "Use the knowledge-base:update-operator skill and reply with its report block only" --allowedTools 'Bash(cd "<clone>")' 'Bash(<export command>)' 'Bash(mv "<import>/kb-export.*.json.tmp" "<import>/kb-export.json")' 'Bash(rm "<import>/kb-export.*.json.tmp")'
      ```
 
-     The grant holds for that one session only, and it names the export with its commit, so it covers no other export run. Its `*` admits any text in the `{out}` argument, further export arguments included, in that one session.
+     The grant holds for that one session only, and it names the export with its commit, so it covers no other export run. Each `*` admits any text, further arguments included, in that one session: in the export's `{out}` argument, in the `mv`, which can then move any file the developer may move (GNU `mv` also takes an inserted `-t <folder>`), and in the `rm`, which can then remove any file the developer may remove.
    - After the session, `git -C "<clone>" rev-parse HEAD` is `<head>`: the session fast-forwards the clone itself, so `<head>` differs from `<commit>` when `origin/<default>` moved in between.
    - Passes when the reply's `index:` line is `loaded` or `current`, its `commit:` line equals `<head>`, and its `docs:` line is a number of at least 1. Otherwise the reason is the reply's `index:` line, `the index holds no documents`, or `the index is at <reply commit>, the clone at <head>`.
 2. **Full-text index and test title.** With the MCP server registered (step 6):

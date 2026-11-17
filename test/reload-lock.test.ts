@@ -71,7 +71,8 @@ afterEach(() => {
   rmSync(IMPORT, { recursive: true, force: true });
 });
 
-if (!PWSH) console.warn("PowerShell reload-lock runs skipped: pwsh is not on PATH");
+const PWSH_NOTE = "PowerShell on macOS; Windows cmdlet behaviour unverified";
+if (!PWSH) console.warn(`PowerShell reload-lock runs (${PWSH_NOTE}) skipped: pwsh is not on PATH`);
 
 describe("runtime.md names the reload lock commands", () => {
   test("run id, take, list, age checks per shell, break and release", () => {
@@ -99,18 +100,27 @@ describe("runtime.md names the reload lock commands", () => {
     expect(section).not.toContain("AddMinutes(10)");
   });
 
-  test("setup-operator pre-allows them, so a headless session is not stopped", async () => {
+  test("setup-operator pre-allows them, except find and ls, which are built-in read-only commands", async () => {
     const setup = await Bun.file(join(PLUGIN, "skills/setup-operator/SKILL.md")).text();
-    const { idSh, idPs, take, takeOwner, ageSh, agePs, ageLockSh, ageLockPs, breakOwner, removeLock } = lockCommands();
+    const { idSh, idPs, take, takeOwner, agePs, ageLockPs, breakOwner, removeLock } = lockCommands();
     const wild = (c: string) => c.replace("<run id>", "*").replace("<old>", "*");
-    for (const c of [idSh, take, takeOwner, ageSh, ageLockSh, breakOwner, removeLock]) expect(setup).toContain(`Bash(${wild(c)})`);
+    for (const c of [idSh, take, takeOwner, breakOwner, removeLock]) expect(setup).toContain(`Bash(${wild(c)})`);
     for (const c of [idPs, agePs, ageLockPs]) expect(setup).toContain(`PowerShell(${wild(c)})`);
+    expect(setup).not.toContain("Bash(find ");
     expect(setup).toContain("https://code.claude.com/docs/en/permissions#read-only-commands");
+  });
+
+  test("records the PowerShell observations as seen on macOS and unverified on Windows", () => {
+    const section = lockSection();
+    expect(section).toContain("New-Item -ItemType Directory");
+    expect(section).toMatch(/creates missing parent/);
+    expect(section).toMatch(/stdin closed[^.]*printed the confirmation[^.]*removed nothing/);
+    expect(section.match(/seen in pwsh on macOS, unverified on Windows/g)?.length).toBeGreaterThanOrEqual(2);
   });
 });
 
 for (const shell of ["bash", "zsh", ...(PWSH ? ["pwsh"] : [])]) {
-  describe(`reload lock in ${shell}`, () => {
+  describe(`reload lock in ${shell}${shell === "pwsh" ? ` (${PWSH_NOTE})` : ""}`, () => {
     const c = lockCommands();
     const ageCmd = shell === "pwsh" ? c.agePs : c.ageSh;
     const ageLockCmd = shell === "pwsh" ? c.ageLockPs : c.ageLockSh;
@@ -294,6 +304,7 @@ for (const shell of ["bash", "zsh", ...(PWSH ? ["pwsh"] : [])]) {
       const r = run(shell, c.removeLock);
       expect(r.code).not.toBe(0);
       expect(missing(r.err)).toBe(false);
+      expect(r.err).toMatch(/not empty/i);
       expect(existsSync(LOCK())).toBe(true);
     });
   });
